@@ -1,0 +1,33 @@
+{
+    "files.associations": {
+        "*.v": "verilog",
+        "*.vh": "verilog",
+        "*.sv": "systemverilog",
+        "*.svh": "systemverilog",
+        "*.pcf": "plaintext"
+    },
+
+    "verilog.linting.linter": "verilator",
+    "verilog.linting.verilator.arguments": "-Wall -g2012",
+     "verilog.linting.verilator.includePath": [
+        "rtl"
+    ],
+
+    "editor.formatOnSave": false,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4,
+
+    "[makefile]": {
+        "editor.insertSpaces": false
+    },
+
+    "[verilog]": {
+        "editor.defaultFormatter": "chipsalliance.verible",
+        "editor.formatOnSave": true
+    },
+
+    "[systemverilog]": {
+        "editor.defaultFormatter": "mshr-h.veriloghdl",
+        "editor.formatOnSave": true
+    }
+}

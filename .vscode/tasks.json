@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Verilator Head",
+            "type": "shell",
+            "command": "verilator",
+            "args": [
+                "--cc",
+                "mux2.v",
+                "--top-module",
+                "mux2"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Verilator Build",
+            "type": "shell",
+            "command": "verilator",
+            "args": [
+                "--cc",
+                "--exe",
+                "--build",
+                "-Wall",
+                "--top-module",
+                "mux2",
+                "-CFLAGS",
+                "\"-std=c++17\"",
+                "mux2.v",
+                "sim_main.cpp"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Verilator Run",
+            "type": "shell",
+            "command": "./obj_dir/Vmux2 && echo $?",
+            "args": [],
+            "problemMatcher": []
+        }
+    ]
+}
