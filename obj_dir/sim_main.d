@@ -1,4 +1,4 @@
-sim_main.o: ../sim_main.cpp Vmux2.h \
+sim_main.o: ../sim_main.cpp Vadder4.h \
  /usr/share/verilator/include/verilated.h \
  /usr/share/verilator/include/verilatedos.h \
  /usr/share/verilator/include/verilated_config.h \
