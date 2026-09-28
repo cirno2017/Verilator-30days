@@ -3,25 +3,7 @@
 
 #include <cstdint>
 #include <iostream>
-
-constexpr unsigned W = 4;
-constexpr std::uint32_t MASK = (std::uint32_t{1} << W) - 1;
-
-std::int32_t signed4(std::uint32_t bits)
-{
-    bits &= MASK;
-
-    // TODO 1：按 4 位补码解释 bits。
-    // 提示：先转成 int32_t，再根据第 3 位决定是否减去 16。
-    // #error "TODO 1: implement signed4"
-    std::int32_t val = static_cast<std::int32_t>(bits);
-    if (bits & (1 << (W - 1)))
-    {
-        val -= 1 << W;
-    }
-    return val;
-    // return 0; // 替换
-}
+#include <string>
 
 int main(int argc, char **argv)
 {
@@ -29,83 +11,110 @@ int main(int argc, char **argv)
     context.commandArgs(argc, argv);
     Vadder4 dut{&context};
 
+    // 带这个参数运行时，故意破坏第 4 个用例的 sum 期望值。
+    const bool inject_error =
+        argc == 2 && std::string(argv[1]) == "--inject-error";
+
     unsigned cases = 0;
+    unsigned checks = 0;
     unsigned errors = 0;
 
-    auto run_case = [&](std::uint32_t raw_a,
-                        std::uint32_t raw_b,
-                        std::int32_t expected_signed)
+    auto check_equal = [&](unsigned case_id,
+                           const char *cycle,
+                           const char *signal,
+                           std::uint32_t expected,
+                           std::uint32_t actual)
+    {
+        // TODO 1：
+        // 每次调用都将 checks 加 1。
+        // expected != actual 时：
+        //   errors 加 1；
+        //   使用 std::cerr 输出一行失败报告，包含：
+        //   case、cycle、signal、expected、actual。
+        // 相等时不增加 errors，也不输出失败信息。
+        // #error "TODO 1: implement check_equal"
+        // My Code Start
+        ++checks;
+        if (expected != actual)
+        {
+            ++errors;
+            std::cout << "FAIL "
+                      << "case = " << case_id
+                      << " cycle = N/A "
+                      << "signal = " << signal
+                      << " expected = " << expected
+                      << " actual = " << actual
+                      << std::endl;
+        }
+        // My Code End
+    };
+
+    auto run_case = [&](std::uint32_t a,
+                        std::uint32_t b,
+                        std::uint32_t expected_sum,
+                        std::uint32_t expected_carry)
     {
         ++cases;
 
-        // TODO 2：用 MASK 保留两个原始输入的低 4 位。
-        // #error "TODO 2: mask inputs"
-        const std::uint32_t a = raw_a & MASK;
-        ; // 替换右侧
-        const std::uint32_t b = raw_b & MASK;
-        ; // 替换右侧
-
-        // TODO 3：先扩宽再相加；从完整和提取低位与进位。
-        // 期望值只根据 a、b 和接口规格计算，不读取 DUT。
-        // #error "TODO 3: calculate full sum, low bits and carry"
-        const std::uint64_t full = static_cast<std::uint64_t>(a) + static_cast<std::uint64_t>(b);
-        ;                                                     // 替换右侧
-        const std::uint32_t expected_sum = full & MASK;       // 替换右侧
-        const std::uint32_t expected_carry = (full >> W) & 1; // 替换右侧
-
-        dut.a = a;
-        dut.b = b;
+        dut.a = a & 0xFu;
+        dut.b = b & 0xFu;
         dut.eval();
 
-        const std::uint32_t actual_sum = dut.sum;
-        const std::uint32_t actual_carry = dut.carry;
-        const std::int32_t actual_signed = signed4(actual_sum);
-
-        if (actual_sum != expected_sum ||
-            actual_carry != expected_carry ||
-            actual_signed != expected_signed)
+        if (inject_error && cases == 4)
         {
-            ++errors;
-            std::cerr
-                << "FAIL case=" << cases << " cycle=N/A"
-                << " raw_a=" << raw_a << " raw_b=" << raw_b
-                << " a=" << a << " b=" << b
-                << " full=" << full
-                << " sum(expected/actual)="
-                << expected_sum << '/' << actual_sum
-                << " carry(expected/actual)="
-                << expected_carry << '/' << actual_carry
-                << " signed(expected/actual)="
-                << expected_signed << '/' << actual_signed << '\n';
+            expected_sum ^= 1u;
         }
+
+        // TODO 2：
+        // 分别调用 check_equal 检查 sum 和 carry。
+        // case_id 使用 cases，cycle 使用 "N/A"；
+        // signal 分别使用 "sum"、"carry"。
+        // 期望值来自参数，实际值来自 DUT。
+        // 两次调用都必须执行，不要使用 && 串联。
+        // #error "TODO 2: check both outputs"
+        // My Code Start
+        check_equal(cases, "N/A", "sum", expected_sum, dut.sum);
+        check_equal(cases, "N/A", "carry", expected_carry, dut.carry);
+
+        // My Code End
     };
 
-    // 第三个参数：低 4 位结果按补码解释后的手算值。
-    run_case(0x0, 0x0, 0);
-    run_case(0x1, 0x2, 3);
-    run_case(0xF, 0x0, -1);
-    run_case(0xF, 0x1, 0);
-    run_case(0xF, 0xF, -2);
-    run_case(0x7, 0x1, -8);
-    run_case(0x8, 0x8, 0);
-    run_case(0x1F, 0x11, 0);
+    //           a    b    sum carry
+    run_case(0x0, 0x0, 0x0, 0);
+    run_case(0x1, 0x2, 0x3, 0);
+    run_case(0xF, 0x0, 0xF, 0);
+    run_case(0xF, 0x1, 0x0, 1);
+    run_case(0xF, 0xF, 0xE, 1);
+    run_case(0x7, 0x1, 0x8, 0);
 
     dut.final();
 
-    if (cases != 8)
+    if (cases != 6 || checks != 12)
     {
-        std::cerr << "INCOMPLETE expected_cases=8 actual_cases="
-                  << cases << '\n';
+        std::cerr << "INCOMPLETE cases=" << cases
+                  << " checks=" << checks
+                  << " expected_cases=6 expected_checks=12\n";
         return 2;
     }
 
-    if (errors != 0)
-    {
-        std::cerr << "FAIL cases=" << cases
-                  << " errors=" << errors << '\n';
-        return 1;
-    }
+    std::cout << (errors == 0 ? "PASS" : "FAIL")
+              << " cases=" << cases
+              << " checks=" << checks
+              << " errors=" << errors << '\n';
 
-    std::cout << "PASS cases=" << cases << " errors=0\n";
-    return 0;
+    // TODO 3：
+    // errors 为 0 时返回 0，否则返回 1。
+    // 不能因为开启了 inject_error 就直接返回 1，
+    // 退出码必须取决于实际检查结果。
+    // #error "TODO 3: return status based on errors"
+    // My Code Start
+    if (errors != 0 || cases != 6 || checks != 12)
+    {
+        return EXIT_FAILURE;
+    }
+    else
+    {
+        return EXIT_SUCCESS;
+    }
+    // My Code End
 }
