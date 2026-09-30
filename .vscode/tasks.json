@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "mux4_en.v",
+                "adder4.v",
                 "--top-module",
-                "mux4_en"
+                "adder4"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "mux4_en",
+                "adder4",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "mux4_en.v",
+                "adder4.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vmux4_en && echo $?",
+            "command": "./obj_dir/Vadder4 && echo $?",
             "args": [],
             "problemMatcher": []
         }
