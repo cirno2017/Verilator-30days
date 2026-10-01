@@ -2,8 +2,12 @@
 #include "Vadder4.h"
 #include "verilated.h"
 
+#include <charconv>
 #include <cstdint>
 #include <iostream>
+#include <random>
+#include <string_view>
+#include <system_error>
 
 struct Expected
 {
@@ -11,36 +15,59 @@ struct Expected
     std::uint32_t carry;
 };
 
-// 只根据接口输入计算期望结果，不接触 DUT。
 Expected reference_add(std::uint32_t a, std::uint32_t b)
 {
-    // TODO 1：
-    // 先将一个操作数扩宽为 uint64_t，再求完整和。
-    // 根据 4 位接口，用余数和整数除法计算 sum、carry。
-    // 返回 Expected{... , ...}；必要时显式转换类型。
-    // #error "TODO 1: implement reference model"
-    // My TODO1 Code Start
-    std::uint64_t full = static_cast<std::uint64_t>(a) + b;
-    std::uint32_t sum = full % 16u;
-    std::uint32_t carry = full / 16u;
-    return Expected{sum, carry};
-    // My TODO1 Code END
+    const std::uint64_t total = static_cast<std::uint64_t>(a) + b;
+    return {
+        static_cast<std::uint32_t>(total % 16u),
+        static_cast<std::uint32_t>(total / 16u)};
 }
 
 int main(int argc, char **argv)
 {
+    // 接受一个十进制 uint32_t seed，例如 ./obj_dir/Vadder4 12345
+    if (argc != 2)
+    {
+        std::cerr << "Usage: " << argv[0] << " <decimal_seed>\n";
+        return 2;
+    }
+
+    std::uint32_t seed = 0;
+    const std::string_view arg{argv[1]};
+    const auto parsed =
+        std::from_chars(arg.data(), arg.data() + arg.size(), seed);
+    if (parsed.ec != std::errc{} ||
+        parsed.ptr != arg.data() + arg.size())
+    {
+        std::cerr << "Invalid seed\n";
+        return 2;
+    }
+
     VerilatedContext context;
     context.commandArgs(argc, argv);
     Vadder4 dut{&context};
 
-    constexpr std::uint32_t values = 16;
-    constexpr std::uint32_t mask = 0xFu;
-    constexpr unsigned expected_cases = values * values;
+    constexpr unsigned random_cases = 200;
+    constexpr unsigned expected_cases = 4 + random_cases;
     constexpr unsigned expected_checks = expected_cases * 2;
+    constexpr std::uint32_t mask = 0xFu;
 
     unsigned cases = 0;
     unsigned checks = 0;
     unsigned errors = 0;
+
+    std::cout << "CONFIG seed=" << seed
+              << " random_cases=" << random_cases << '\n';
+
+    // TODO 1：
+    // 创建名为 rng 的 std::mt19937，用 seed 初始化。
+    // 创建名为 dist 的 uint32_t 均匀整数分布，范围为 0～15。
+    // 两者只在这里创建一次。
+    // #error "TODO 1: create engine and distribution"
+    // My TODO 1 Code Start
+    std::mt19937 rng{seed};
+    std::uniform_int_distribution<std::uint32_t> dist{0u, 15u};
+    // My TODO 2 Code End
 
     auto check_equal = [&](unsigned case_id,
                            const char *cycle,
@@ -54,7 +81,8 @@ int main(int argc, char **argv)
         if (expected != actual)
         {
             ++errors;
-            std::cerr << "FAIL case=" << case_id
+            std::cerr << "FAIL seed=" << seed
+                      << " case=" << case_id
                       << " cycle=" << cycle
                       << " a=" << a
                       << " b=" << b
@@ -70,42 +98,51 @@ int main(int argc, char **argv)
         const Expected expected = reference_add(a, b);
 
         // TODO 2：
-        // 将 a、b 分别写入 DUT，写入时使用 mask。
+        // 将 a、b 分别写入 DUT，使用 mask 清除高位。
         // 调用 eval()。
-        // 分别调用 check_equal 检查 sum 和 carry。
-        // case_id 使用 cases，cycle 使用 "N/A"；
-        // 报告中的输入使用 a、b。
-        // 两次检查都执行，不要用 && 串联。
+        // 分别调用 check_equal 检查 sum、carry。
+        // case_id=cases，cycle="N/A"，报告输入使用 a、b。
         // #error "TODO 2: drive evaluate and check"
-        // My TODO2 Code Start
-        dut.a = a & 0xF;
-        dut.b = b & 0xF;
+        // My TODO 2 Code Start
+        dut.a = a & mask;
+        dut.b = b & mask;
         dut.eval();
         check_equal(cases, "N/A", a, b, "sum", expected.sum, dut.sum);
         check_equal(cases, "N/A", a, b, "carry", expected.carry, dut.carry);
-        // My TODO2 Code END
+        // My TODO 2 Code End
     };
 
-    // TODO 3：
-    // 写双层循环，a 为外层、b 为内层。
-    // 两者都从 0 开始，条件为小于 values。
-    // 每组输入调用一次 run_case(a, b)。
-    // #error "TODO 3: enumerate all input pairs"
-    // My TODO3 Code Start
-    for (uint32_t a = 0; a < 16; ++a)
+    // 定向用例：不消耗 rng 的随机数。
+    run_case(0, 0);
+    run_case(7, 8);
+    run_case(15, 1);
+    run_case(15, 15);
+
+    for (unsigned i = 0; i < random_cases; ++i)
     {
-        for (uint32_t b = 0; b < 16; ++b)
-        {
-            run_case(a, b);
-        }
+        // TODO 3：
+        // 分别调用 dist(rng)，依次生成局部变量 a、b。
+        // 两个变量都使用 const std::uint32_t。
+        // 不在循环内重新设 seed。
+        // #error "TODO 3: draw a then b"
+        // My TODO 3 Code Start
+        const std::uint32_t a = dist(rng);
+        const std::uint32_t b = dist(rng);
+        // My TODO 3 Code End
+
+        std::cout << "INPUT random_index=" << i
+                  << " case=" << cases + 1
+                  << " a=" << a
+                  << " b=" << b << '\n';
+        run_case(a, b);
     }
-    // My TODO3 Code END
 
     dut.final();
 
     if (cases != expected_cases || checks != expected_checks)
     {
-        std::cerr << "INCOMPLETE cases=" << cases
+        std::cerr << "INCOMPLETE seed=" << seed
+                  << " cases=" << cases
                   << " checks=" << checks
                   << " expected_cases=" << expected_cases
                   << " expected_checks=" << expected_checks << '\n';
@@ -113,6 +150,7 @@ int main(int argc, char **argv)
     }
 
     std::cout << (errors == 0 ? "PASS" : "FAIL")
+              << " seed=" << seed
               << " cases=" << cases
               << " checks=" << checks
               << " errors=" << errors << '\n';
