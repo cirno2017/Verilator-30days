@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "adder4.v",
+                "satadd4.v",
                 "--top-module",
-                "adder4"
+                "satadd4"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "adder4",
+                "satadd4",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "adder4.v",
+                "satadd4.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vadder4 && echo $?",
+            "command": "./obj_dir/Vsatadd4 && echo $?",
             "args": [],
             "problemMatcher": []
         }
