@@ -1,135 +1,141 @@
 //
-#include "Vsatadd4.h"
+#include "Vdff4.h"
 #include "verilated.h"
 
 #include <cstdint>
 #include <iostream>
 
-struct Expected
-{
-    std::uint32_t y;
-    std::uint32_t overflow;
-};
-
-Expected reference(std::uint32_t a,
-                   std::uint32_t b,
-                   std::uint32_t sat_en)
-{
-    // TODO 1：
-    // 根据接口规格计算 Expected。
-    // 先扩宽再计算数学和。
-    // overflow 与 sat_en 无关。
-    // 不访问 DUT，不照抄 RTL 的分支条件。
-    // #error "TODO 1: independent reference model"
-    // My TODO 1 Code Start
-    std::uint64_t full_u64 = static_cast<std::uint64_t>(a) + b;
-    std::uint32_t overflow = full_u64 > 15 ? 1 : 0;
-    if (sat_en != 0)
-    {
-        std::uint32_t full = full_u64 > 15 ? 15 : full_u64;
-        return Expected{full, overflow};
-    }
-    else
-    {
-        std::uint32_t full = full_u64 % 16;
-        return Expected{full, overflow};
-    }
-    // My TODO 1 Code End
-}
-
 int main(int argc, char **argv)
 {
     VerilatedContext context;
     context.commandArgs(argc, argv);
-    Vsatadd4 dut{&context};
+    Vdff4 dut{&context};
 
-    constexpr std::uint32_t values = 16;
-    constexpr std::uint32_t modes = 2;
     constexpr std::uint32_t mask = 0xFu;
-    constexpr unsigned expected_cases = modes * values * values;
-    constexpr unsigned expected_checks = expected_cases * 2;
+    constexpr std::uint32_t samples[] = {15u, 0u, 5u, 10u};
+    constexpr unsigned expected_cases = 4;
+    constexpr unsigned expected_checks = 1 + expected_cases * 4;
+    constexpr unsigned expected_cycles = 1 + expected_cases;
 
     unsigned cases = 0;
+    unsigned cycle = 0; // 已完成求值的上升沿数量
     unsigned checks = 0;
     unsigned errors = 0;
 
-    auto check_equal = [&](unsigned case_id,
-                           std::uint32_t a,
-                           std::uint32_t b,
-                           std::uint32_t sat_en,
-                           const char *signal,
-                           std::uint32_t expected,
-                           std::uint32_t actual)
+    auto check_q = [&](unsigned case_id,
+                       const char *phase,
+                       std::uint32_t expected)
     {
         ++checks;
-        if (expected != actual)
+        const std::uint32_t actual = dut.q;
+
+        if (actual != expected)
         {
             ++errors;
             std::cerr << "FAIL case=" << case_id
-                      << " cycle=N/A"
-                      << " a=" << a
-                      << " b=" << b
-                      << " sat_en=" << sat_en
-                      << " signal=" << signal
+                      << " cycle=" << cycle
+                      << " phase=" << phase
+                      << " clk=" << static_cast<unsigned>(dut.clk)
+                      << " d=" << static_cast<unsigned>(dut.d)
+                      << " signal=q"
                       << " expected=" << expected
                       << " actual=" << actual << '\n';
         }
     };
 
-    auto run_case = [&](std::uint32_t a,
-                        std::uint32_t b,
-                        std::uint32_t sat_en)
+    // 建立已知的低电平；此时不检查 q 的初值。
+    dut.clk = 0;
+    dut.d = 0;
+    dut.eval();
+
+    // TODO 1：
+    // 产生上升沿并 eval()，然后 ++cycle。
+    // 调用 check_q(0, "init-rise", 0u)，验证初始化采样。
+    // 再将 clk 拉低并 eval()，为正式用例做好准备。
+    // #error "TODO 1: initialize through a real rising edge"
+    // TODO1 My Code Start
+    dut.clk = 1;
+    dut.eval();
+    ++cycle;
+    check_q(0, "init-rise", 0u);
+    dut.clk = 0;
+    dut.eval();
+    // TODO1 My Code End
+    // 软件期望状态来自规格：初始化上升沿采样了 0。
+    // 不要写成 expected_q = dut.q。
+    std::uint32_t expected_q = 0;
+
+    for (const std::uint32_t sample : samples)
     {
         ++cases;
-        const Expected expected = reference(a, b, sat_en);
+        const std::uint32_t sampled_d = sample & mask;
+        const std::uint32_t changed_d = sampled_d ^ mask;
 
-        // TODO 2：
-        // 写入全部三个输入，a/b 使用 mask，sat_en 使用 1u。
-        // 调用 eval()。
-        // 分别检查 y 和 overflow，不要短路或提前返回。
-        // check_equal 的输入信息使用本次 a、b、sat_en。
-        // #error "TODO 2: drive evaluate and check"
-        // My TODO 2 Code Start
-        dut.a = a & mask;
-        dut.b = b & mask;
-        dut.sat_en = sat_en & 1u;
+        // TODO 2：完成以下两个阶段。
+        //
+        // A. low-before-rise：
+        //    时钟当前为 0。
+        //    将 sampled_d 写入 d，eval()。
+        //    check_q 检查 q 仍等于 expected_q。
+        //
+        // B. rise：
+        //    将 clk 置为 1，eval()，然后 ++cycle。
+        //    根据采样规格更新 expected_q。
+        //    check_q 检查 q 等于更新后的 expected_q。
+        // #error "TODO 2: drive before edge and check capture"
+        // TODO2 My Code Start
+        dut.clk = 0;
+        dut.d = sampled_d;
         dut.eval();
-        check_equal(cases, a, b, sat_en, "sum", expected.y, dut.y);
-        check_equal(cases, a, b, sat_en, "overflow", expected.overflow, dut.overflow);
-        // My TODO 2 Code End
-    };
+        check_q(cases, "low-before-rise", expected_q);
+        dut.clk = 1;
+        dut.eval();
+        ++cycle;
+        expected_q = sample;
+        check_q(cases, "rise", expected_q);
+        // TODO2 My Code End
 
-    // TODO 3：
-    // 三层循环：sat_en 最外层，a 中间，b 最内层。
-    // 范围分别为 [0,modes)、[0,values)、[0,values)。
-    // 每组输入调用一次 run_case(a, b, sat_en)。
-    // #error "TODO 3: exhaustive enumeration"
-    // My TODO 3 Code Start
-    for (unsigned sat_en = 0; sat_en < modes; ++sat_en)
-    {
-        for (unsigned a = 0; a < values; ++a)
-        {
-            for (unsigned b = 0; b < values; ++b)
-            {
-                run_case(a, b, sat_en);
-            }
-        }
+        // TODO 3：完成以下两个阶段。
+        //
+        // C. high-after-change：
+        //    保持 clk=1，将 changed_d 写入 d，eval()。
+        //    check_q 检查 q 仍等于 expected_q。
+        //
+        // D. fall：
+        //    保持 d 不变，将 clk 置为 0，eval()。
+        //    check_q 检查 q 仍等于 expected_q。
+        //
+        // C、D 都不更新 expected_q，也不增加 cycle。
+        // #error "TODO 3: check high-level and falling-edge hold"
+        // TODO3 My Code Start
+        dut.clk = 1;
+        dut.d = changed_d;
+        dut.eval();
+        check_q(cases, "high-after-change", expected_q);
+        dut.clk = 0;
+        dut.eval();
+        check_q(cases, "fall", expected_q);
+        // TODO3 My Code End
     }
-    // My TODO 3 Code End
 
     dut.final();
 
-    if (cases != expected_cases || checks != expected_checks)
+    if (cases != expected_cases ||
+        checks != expected_checks ||
+        cycle != expected_cycles)
     {
         std::cerr << "INCOMPLETE cases=" << cases
+                  << " cycles=" << cycle
                   << " checks=" << checks
                   << " expected_cases=" << expected_cases
+                  << " expected_cycles=" << expected_cycles
                   << " expected_checks=" << expected_checks << '\n';
         return 2;
     }
 
     std::cout << (errors == 0 ? "PASS" : "FAIL")
               << " cases=" << cases
+              << " cycles=" << cycle
               << " checks=" << checks
               << " errors=" << errors << '\n';
 
