@@ -1,39 +1,92 @@
 //
-#include "Vdff4.h"
+#include "Vreset_pair.h"
 #include "verilated.h"
 
 #include <cstdint>
 #include <iostream>
 
+struct Step
+{
+    const char *phase;
+    std::uint32_t clk;
+    std::uint32_t reset; // 同时驱动两个复位端口
+    std::uint32_t d;
+};
+
+struct Expected
+{
+    std::uint32_t sync;
+    std::uint32_t async;
+};
+
 int main(int argc, char **argv)
 {
     VerilatedContext context;
     context.commandArgs(argc, argv);
-    Vdff4 dut{&context};
+    Vreset_pair dut{&context};
 
-    constexpr std::uint32_t mask = 0xFu;
-    constexpr std::uint64_t half_period = 5;
-    constexpr std::uint32_t samples[] = {15u, 0u, 5u, 10u};
+    constexpr Step steps[] = {
+        {"initial-assert-low", 0, 1, 9},
+        {"initial-reset-rise", 1, 1, 9},
+        {"initial-reset-fall", 0, 1, 9},
+        {"release-low", 0, 0, 9},
+        {"capture-9", 1, 0, 9},
+        {"fall-after-9", 0, 0, 9},
+        {"pulse-assert-low", 0, 1, 6},
+        {"pulse-release-low", 0, 0, 6},
+        {"capture-6", 1, 0, 6},
+        {"assert-high", 1, 1, 3},
+        {"release-high", 1, 0, 3},
+        {"fall-after-release", 0, 0, 3},
+        {"held-reset-assert", 0, 1, 15},
+        {"held-reset-rise", 1, 1, 15},
+        {"held-reset-release", 1, 0, 10},
+        {"fall-before-10", 0, 0, 10},
+        {"capture-10", 1, 0, 10}};
 
-    constexpr unsigned expected_cases = 4;
-    constexpr unsigned expected_cycles = 5;
-    constexpr unsigned expected_checks = 24;
-    constexpr std::uint64_t expected_end_time = 70;
+    // 期望值来自接口规格，不读取 DUT 输出生成。
+    constexpr Expected expected[] = {
+        {0, 0}, // 步骤1：sync 只是占位，不检查, 0, 1, 9
+        {0, 0}, // 步骤2：initial-assert-low, 1, 1, 9
+        {0, 0}, // 步骤3：initial-reset-fall, 0, 1, 9
+        {0, 0}, // 步骤4：release-low, 0, 0, 9
+        {9, 9}, // 步骤5：capture-9, 1, 0, 9
+        // TODO 1 My Code Start
+        {9, 9},  // 步骤6：fall-after-9, 0, 0, 9，时钟下降沿，复位=0，不变
+        {9, 0},  // 步骤7：pulse-assert-low, 0, 1, 6，时钟不变，复位=1，同步不变，异步清零
+        {9, 0},  // 步骤8：pulse-release-low, 0, 0, 6，时钟不变，复位=0，不变
+        {6, 6},  // 步骤9：capture-6, 1, 0, 6，时钟上升沿，复位=0，同步异步都采样
+        {6, 0},  // 步骤10：assert-high, 1, 1, 3，时钟不变，复位=1，同步不变，异步清零
+        {6, 0},  // 步骤11：release-high, 1, 0, 3，时钟不变，复位=0，不变
+        {6, 0},  // 步骤12：fall-after-release, 0, 0, 3，时钟下降沿，复位=0，不变
+        {6, 0},  // 步骤13：held-reset-assert, 0, 1, 15，时钟不变，复位=1，同步不变，异步清零
+        {0, 0},  // 步骤14：held-reset-rise, 1, 1, 15，时钟上升沿，复位=1，同步清零，异步清零
+        {0, 0},  // 步骤15：held-reset-release, 1, 0, 10，时钟不变，复位=0，不变
+        {0, 0},  // 步骤16：fall-before-10, 0, 0, 10，时钟下降沿，复位=0，不变
+        {10, 10} // 步骤17：capture-10, 1, 0, 10，时钟上升沿，复位=0，同步异步都采样
+        // TODO 1 My Code End
+        // TODO 1：补齐步骤6～17的12组期望值。
+        // 每组顺序为 {q_sync, q_async}。
+        // #error "TODO 1: complete the independent expected table"
+    };
+
+    constexpr unsigned step_count = sizeof(steps) / sizeof(steps[0]);
+    constexpr unsigned expectation_count =
+        sizeof(expected) / sizeof(expected[0]);
 
     unsigned cases = 0;
     unsigned cycle = 0;
     unsigned checks = 0;
     unsigned errors = 0;
-    std::uint32_t expected_q = 0;
 
     auto check_equal = [&](unsigned case_id,
                            const char *phase,
                            const char *signal,
-                           std::uint64_t expected,
-                           std::uint64_t actual)
+                           std::uint32_t want,
+                           std::uint32_t actual)
     {
         ++checks;
-        if (expected != actual)
+        if (want != actual)
         {
             ++errors;
             std::cerr << "FAIL case=" << case_id
@@ -41,138 +94,102 @@ int main(int argc, char **argv)
                       << " time_ns=" << context.time()
                       << " phase=" << phase
                       << " signal=" << signal
-                      << " expected=" << expected
+                      << " expected=" << want
                       << " actual=" << actual << '\n';
         }
     };
 
-    // 推进半周期，到达指定时钟电平，并完成求值。
-    // 本函数不修改 cycle，也不修改 expected_q。
-    auto half_step = [&](std::uint32_t next_clk)
-    {
-        // TODO 1：
-        // 依次完成：
-        // 1. 时间增加 half_period。
-        // 2. 将 next_clk 的最低位写入 dut.clk。
-        // 3. 调用 eval()。
-        // #error "TODO 1: advance time, drive clock, evaluate"
-        // TODO 1 My Code Start
-        context.timeInc(half_period);
-        dut.clk = next_clk & 0x1u;
-        dut.eval();
-        // TODO 1 My Code End
-    };
-
-    // 入口和出口都约定 clk=0。
-    auto tick = [&](unsigned case_id, std::uint32_t sample)
-    {
-        const std::uint64_t start_time = context.time();
-        const std::uint32_t sampled_d = sample & mask;
-
-        // TODO 2：完成以下步骤，共调用 check_equal 五次。
-        //
-        // A. 写入 sampled_d，eval()。
-        //    检查 q == expected_q，phase="low-before-rise"。
-        //
-        // B. 调用 half_step(1u)，然后 ++cycle。
-        //    根据采样规格更新 expected_q。
-        //    检查 q == expected_q，phase="rise"。
-        //
-        // C. 调用 half_step(0u)。
-        //    检查 q == expected_q，phase="fall"。
-        //
-        // D. phase="tick-end"：
-        //    检查 clk == 0。
-        //    检查 time == start_time + 2 * half_period。
-        //
-        // 检查信号名分别使用 "q"、"clk"、"time_ns"。
-        // #error "TODO 2: implement one full clock cycle"
-        // TODO 2 My Code Start
-        // A Start
-        dut.d = sampled_d;
-        dut.eval();
-        check_equal(case_id, "low-before-rise", "q", expected_q, dut.q);
-        // B Start
-        half_step(1u);
-        ++cycle;
-        expected_q = sampled_d;
-        check_equal(case_id, "rise", "q", expected_q, dut.q);
-        // C Start
-        half_step(0u);
-        check_equal(case_id, "fall", "q", expected_q, dut.q);
-        // D Start
-        check_equal(case_id, "tick-end", "clk", 0u, dut.clk);
-        check_equal(case_id, "tick-end", "time_ns", start_time + 2 * half_period, context.time());
-        // TODO 2 My Code End
-
-        std::cout << "TICK case=" << case_id
-                  << " cycle=" << cycle
-                  << " time_ns=" << context.time()
-                  << " q=" << static_cast<unsigned>(dut.q)
-                  << '\n';
-    };
-
-    // 建立低电平，此时不检查 q 的初值。
+    // 建立已求值的 clk=0、reset=0。
+    // 不把这里观察到的输出当成有保证的初始值。
     dut.clk = 0;
+    dut.rst_sync = 0;
+    dut.rst_async = 0;
     dut.d = 0;
     dut.eval();
 
-    // 初始化：t=5 上升沿采样 0，t=10 回到低电平。
-    half_step(1u);
-    ++cycle;
-    check_equal(0, "init-rise", "q", 0u, dut.q);
-    half_step(0u);
-
-    // TODO 3：验证只有时间前进时，寄存器不会采样。
-    //
-    // 当前 t=10、clk=0，按规格 q 已为 0。
-    // 1. 写入 d=15，并 eval()。
-    // 2. 只将时间增加 20，再 eval()；不修改 clk。
-    // 3. phase="idle-time-only"，调用 check_equal 三次：
-    //    q 应为 0，clk 应为 0，time_ns 应为 30。
-    //
-    // 不更新 expected_q，不增加 cycle。
-    // #error "TODO 3: time passes without a clock edge"
-    // TODO 3 My Code Start
-    dut.d = 15u;
-    dut.eval();
-    context.timeInc(20);
-    dut.eval();
-    check_equal(0, "idle-time-only", "q", 0u, dut.q);
-    check_equal(0, "idle-time-only", "clk", 0u, dut.clk);
-    check_equal(0, "idle-time-only", "time_ns", 30u, context.time());
-    // TODO 3 My Code End
-
-    for (const std::uint32_t sample : samples)
+    if (expectation_count != step_count)
     {
+        std::cerr << "INCOMPLETE expected_rows="
+                  << expectation_count
+                  << " required_rows=" << step_count << '\n';
+        dut.final();
+        return 2;
+    }
+
+    for (unsigned i = 0; i < step_count; ++i)
+    {
+        const Step &s = steps[i];
+        const Expected &e = expected[i];
+        const std::uint32_t old_clk = dut.clk;
         ++cases;
-        tick(cases, sample);
+
+        // TODO 2：
+        // 1. 时间推进5个单位，本课对应5 ns。
+        // 2. 写入两个复位端口和 d，分别限制为1位、4位。
+        // 3. eval()，让非时钟输入先得到处理。
+        // 4. 写入本步骤的 clk，再 eval()。
+        // 5. 仅当 old_clk==0 且新 clk==1 时，++cycle。
+        // #error "TODO 2: drive inputs before clock and evaluate"
+        // TODO 2 My Code Start
+        context.timeInc(5);
+        dut.d = s.d & 0xFu;
+        dut.rst_sync = s.reset & 0x1u;
+        dut.rst_async = s.reset & 0x1u;
+        dut.eval();
+        dut.clk = s.clk;
+        dut.eval();
+        if (old_clk == 0 && dut.clk == 1)
+        {
+            ++cycle;
+        }
+        // TODO 2 My Code End
+
+        // TODO 3：
+        // 步骤1（i==0）只检查 q_async；
+        // 其余步骤分别检查 q_sync 和 q_async。
+        // 使用 cases、s.phase 和 e 中的独立期望值。
+        // 信号名使用 "q_sync"、"q_async"。
+        // #error "TODO 3: compare outputs with the expected table"
+        // TODO 3 My Code Start
+        if (i == 0)
+        {
+            check_equal(cases, s.phase, "q_async", e.async, dut.q_async);
+        }
+        else
+        {
+            check_equal(cases, s.phase, "q_sync", e.sync, dut.q_sync);
+            check_equal(cases, s.phase, "q_async", e.async, dut.q_async);
+        }
+        // TODO 3 My Code End
+
+        std::cout << "STEP case=" << cases
+                  << " cycle=" << cycle
+                  << " time_ns=" << context.time()
+                  << " phase=" << s.phase
+                  << " q_sync=" << static_cast<unsigned>(dut.q_sync)
+                  << " q_async=" << static_cast<unsigned>(dut.q_async)
+                  << '\n';
     }
 
     dut.final();
 
-    if (cases != expected_cases ||
-        cycle != expected_cycles ||
-        checks != expected_checks)
+    if (cases != 17 || cycle != 5 || checks != 33)
     {
         std::cerr << "INCOMPLETE cases=" << cases
                   << " cycles=" << cycle
                   << " checks=" << checks
-                  << " expected_cases=" << expected_cases
-                  << " expected_cycles=" << expected_cycles
-                  << " expected_checks=" << expected_checks << '\n';
+                  << " expected_cases=17 expected_cycles=5"
+                  << " expected_checks=33\n";
         return 2;
     }
 
-    // 时间错误也必须导致失败，不能只打印出来。
-    if (context.time() != expected_end_time)
+    if (context.time() != 85)
     {
         ++errors;
         std::cerr << "FAIL case=" << cases
                   << " cycle=" << cycle
                   << " phase=end signal=time_ns"
-                  << " expected=" << expected_end_time
-                  << " actual=" << context.time() << '\n';
+                  << " expected=85 actual=" << context.time() << '\n';
     }
 
     std::cout << (errors == 0 ? "PASS" : "FAIL")

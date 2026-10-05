@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "dff4.v",
+                "reset_pair.v",
                 "--top-module",
-                "dff4"
+                "reset_pair"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "dff4",
+                "reset_pair",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "dff4.v",
+                "reset_pair.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vdff4",
+            "command": "./obj_dir/Vreset_pair",
             "args": [],
             "problemMatcher": []
         }
