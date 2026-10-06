@@ -1,4 +1,4 @@
-sim_main.o: ../sim_main.cpp Vreset_pair.h \
+sim_main.o: ../sim_main.cpp Vcounter3.h \
  /usr/share/verilator/include/verilated.h \
  /usr/share/verilator/include/verilatedos.h \
  /usr/share/verilator/include/verilated_config.h \

@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "reset_pair.v",
+                "counter3.v",
                 "--top-module",
-                "reset_pair"
+                "counter3"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "reset_pair",
+                "counter3",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "reset_pair.v",
+                "counter3.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vreset_pair",
+            "command": "./obj_dir/Vcounter3",
             "args": [],
             "problemMatcher": []
         }
