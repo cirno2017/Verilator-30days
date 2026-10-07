@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "counter3.v",
+                "counter2.v",
                 "--top-module",
-                "counter3"
+                "counter2"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "counter3",
+                "counter2",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "counter3.v",
+                "counter2.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vcounter3",
+            "command": "./obj_dir/Vcounter2",
             "args": [],
             "problemMatcher": []
         }
