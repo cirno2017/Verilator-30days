@@ -1,63 +1,69 @@
 //
 #include "Vcounter2.h"
 #include "verilated.h"
-#include "verilated_vcd_c.h"
 
 #include <cstdint>
 #include <iostream>
 
+// 纯规格模型：不访问 DUT，不推进时间，不修改其他变量。
+std::uint32_t model_next(std::uint32_t old_state,
+                         bool rst, bool en)
+{
+    // TODO 1：
+    // 根据本课数学规格返回下一状态。
+    // 使用 C++ 的 % 表达模 4 递增。
+    // 覆盖复位、递增、保持三个分支。
+    // #error "TODO 1: implement the specification model"
+    // TODO 1 My Code Start
+    if (rst == 1)
+    {
+        return 0;
+    }
+    else if (rst == 0 && en == 1)
+    {
+        return (old_state + 1) % 4;
+    }
+    else
+    {
+        return old_state;
+    }
+    // TODO 1 My Code End
+}
+
 struct Case
 {
     const char *name;
-    std::uint32_t rst;
-    std::uint32_t en;
-    std::uint32_t want; // 本用例上升沿之后的独立期望
+    bool rst;
+    bool en;
+    // 注意：这里已经没有逐项 want。
 };
 
 int main(int argc, char **argv)
 {
     VerilatedContext context;
     context.commandArgs(argc, argv);
-    context.traceEverOn(true); // 在首次 eval() 之前启用追踪
-
     Vcounter2 dut{&context};
-    VerilatedVcdC trace;
-
-    // TODO 1：
-    // A. 用 dut.trace(&trace, 1) 注册追踪，深度1够用。
-    // B. 用 trace.open(...) 打开 "wave.vcd"。
-    // #error "TODO 1: register and open the VCD trace"
-    // TODO 1 My Code Start
-    dut.trace(&trace, 1);
-    trace.open("wave.vcd");
-    // TODO 1 My Code End
-
-    if (!trace.isOpen())
-    {
-        std::cerr << "ERROR cannot open wave.vcd\n";
-        dut.final();
-        return 2;
-    }
 
     constexpr Case cases[] = {
-        {"increment-to-1", 0, 1, 1},  // 1
-        {"hold-at-1", 0, 0, 1},       // 2
-        {"increment-to-2", 0, 1, 2},  // 3
-        {"increment-to-3", 0, 1, 3},  // 4
-        {"hold-at-maximum", 0, 0, 3}, // 5
-        {"wrap-to-zero", 0, 1, 0},    // 6
-        {"increment-again", 0, 1, 1}, // 7
-        {"reset-with-en-0", 1, 0, 0}, // 8
-        {"resume", 0, 1, 1},          // 9
-        {"reset-with-en-1", 1, 1, 0}  // 10
+        {"increment-to-1", false, true},   // 1
+        {"hold-at-1", false, false},       // 2
+        {"increment-to-2", false, true},   // 3
+        {"increment-to-3", false, true},   // 4
+        {"hold-at-maximum", false, false}, // 5
+        {"wrap-to-zero", false, true},     // 6
+        {"increment-again", false, true},  // 7
+        {"reset-with-en-0", true, false},  // 8
+        {"resume", false, true},           // 9
+        {"reset-with-en-1", true, true},   // 10
+        {"keep-reset", true, true},        // 11
+        {"resume-again", false, true}      // 12
     };
 
     unsigned completed = 0;
     unsigned cycle = 0;
     unsigned checks = 0;
     unsigned errors = 0;
-    unsigned samples = 0;
-    std::uint32_t expected_q = 0;
+    std::uint32_t expected_state = 0;
 
     auto check_equal = [&](unsigned case_id,
                            const char *phase,
@@ -74,94 +80,102 @@ int main(int argc, char **argv)
                       << " time_ns=" << context.time()
                       << " phase=" << phase
                       << " signal=" << signal
+                      << " rst=" << static_cast<unsigned>(dut.rst)
+                      << " en=" << static_cast<unsigned>(dut.en)
                       << " expected=" << want
                       << " actual=" << actual << '\n';
         }
     };
 
-    auto sample = [&]()
-    {
-        // TODO 2：
-        // A. 先对 dut 求值。
-        // B. 再以 context.time() 为时间戳记录波形。
-        // 本函数不推进时间，也不改时钟。
-        // #error "TODO 2: evaluate then dump"
-        // TODO 2 My Code Start
-        dut.eval();
-        trace.dump(context.time());
-        // TODO 2 My Code End
-        ++samples;
-    };
-
-    // t=0：建立低电平；初始 q 只记录，不判定。
+    // 初始化：先建立低电平，不检查未保证的初始 q。
     dut.clk = 0;
     dut.rst = 1;
     dut.en = 0;
-    sample();
+    dut.eval();
 
-    // t=5：初始化复位上升沿。
     context.timeInc(5);
     dut.clk = 1;
-    sample();
+    dut.eval();
     ++cycle;
     check_equal(0, "init-rise", "q", 0, dut.q);
 
-    // t=10：初始化下降沿。
     context.timeInc(5);
     dut.clk = 0;
-    sample();
+    dut.eval();
     check_equal(0, "init-fall", "q", 0, dut.q);
+
+    // expected_state=0 来自复位规格，不从 dut.q 读取。
 
     for (const Case &c : cases)
     {
         const unsigned case_id = completed + 1;
-        const std::uint32_t before = expected_q;
+        const std::uint32_t old_state = expected_state;
 
-        // 周期起点 +1 ns：非时钟输入提前驱动并求值。
+        // 周期起点 +1 ns：提前驱动非时钟输入。
         context.timeInc(1);
-        dut.rst = c.rst & 1u;
-        dut.en = c.en & 1u;
-        sample();
-        check_equal(case_id, "low-before-rise", "q",
-                    before, dut.q);
+        dut.rst = c.rst;
+        dut.en = c.en;
+        dut.eval();
 
-        // 周期起点 +5 ns：上升沿。
+        // TODO 2：
+        // A. 声明 const std::uint32_t next_state，
+        //    用 model_next(old_state, c.rst, c.en) 计算。
+        // B. 调用一次 check_equal：
+        //    phase="low-before-rise"，signal="q"，
+        //    检查 DUT 仍等于 old_state。
+        // #error "TODO 2: predict next state and check old state"
+        // TODO 2 My Code Start
+        const std::uint32_t next_state = model_next(old_state, c.rst, c.en);
+        check_equal(case_id, "low-before-rise", "q", old_state, dut.q);
+        // TODO 2 My Code End
+
+        // 周期起点 +5 ns：产生并处理上升沿。
         context.timeInc(4);
         dut.clk = 1;
-        sample();
+        dut.eval();
         ++cycle;
-        expected_q = c.want;
-        check_equal(case_id, "rise", "q", expected_q, dut.q);
 
-        // 周期起点 +10 ns：下降沿。
+        // TODO 3：
+        // A. 将 expected_state 更新为 next_state。
+        // B. 调用一次 check_equal：
+        //    phase="rise"，signal="q"，
+        //    检查 DUT 等于 expected_state。
+        // #error "TODO 3: commit prediction and check the new state"
+        // TODO 3 My Code Start
+        expected_state = next_state;
+        check_equal(case_id, "rise", "q", expected_state, dut.q);
+        // TODO 3 My Code End
+
+        // 周期起点 +10 ns：下降沿不更新参考状态。
         context.timeInc(5);
         dut.clk = 0;
-        sample();
-        check_equal(case_id, "fall", "q", expected_q, dut.q);
+        dut.eval();
+        check_equal(case_id, "fall", "q",
+                    expected_state, dut.q);
 
         ++completed;
         std::cout << "CASE case=" << case_id
                   << " cycle=" << cycle
                   << " time_ns=" << context.time()
                   << " name=" << c.name
-                  << " q=" << static_cast<unsigned>(dut.q)
+                  << " rst=" << c.rst
+                  << " en=" << c.en
+                  << " old=" << old_state
+                  << " next=" << expected_state
+                  << " actual=" << static_cast<unsigned>(dut.q)
                   << '\n';
     }
 
     check_equal(completed, "end", "clk", 0, dut.clk);
-    check_equal(completed, "end", "time_ns", 110, context.time());
-
+    check_equal(completed, "end", "time_ns", 130, context.time());
     dut.final();
-    trace.close();
 
-    if (completed != 10 || cycle != 11 ||
-        checks != 34 || samples != 33)
+    if (completed != 12 || cycle != 13 || checks != 40)
     {
         std::cerr << "INCOMPLETE cases=" << completed
                   << " cycles=" << cycle
                   << " checks=" << checks
-                  << " samples=" << samples
-                  << " expected=10/11/34/33\n";
+                  << " expected=12/13/40\n";
         return 2;
     }
 
@@ -170,7 +184,6 @@ int main(int argc, char **argv)
               << " cycles=" << cycle
               << " checks=" << checks
               << " errors=" << errors
-              << " samples=" << samples
               << " time_ns=" << context.time() << '\n';
 
     return errors == 0 ? 0 : 1;
