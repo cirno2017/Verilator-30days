@@ -1,48 +1,26 @@
 //
-#include "Vcounter2.h"
+#include "Vdelayed_done.h"
 #include "verilated.h"
 
 #include <cstdint>
 #include <iostream>
 #include <string>
 
-std::uint32_t model_next(std::uint32_t old, bool rst, bool en)
-{
-    if (rst)
-        return 0;
-    if (en)
-        return (old + 1u) % 4u;
-    return old;
-}
-
-struct Case
-{
-    const char *name;
-    bool enables[4];
-    unsigned steps;
-    std::uint32_t final_q;
-};
-
 class Testbench
 {
 private:
     VerilatedContext &context;
-    Vcounter2 dut;
+    Vdelayed_done dut;
 
-    std::uint32_t expected_state = 0;
-
-    // 整场累计，不在 begin_case 中清零。
     unsigned cycle = 0;
     unsigned completed = 0;
     unsigned checks = 0;
     unsigned errors = 0;
-
-    // 当前用例的信息。
     unsigned case_id = 0;
-    unsigned body_steps = 0;
     const char *case_name = "init";
+    bool stall_mode = false;
 
-    void check_equal(const char *phase, const char *signal,
+    void check_equal(const char *item,
                      std::uint64_t want, std::uint64_t actual)
     {
         ++checks;
@@ -53,124 +31,172 @@ private:
                       << " name=" << case_name
                       << " cycle=" << cycle
                       << " time_ns=" << context.time()
-                      << " phase=" << phase
-                      << " signal=" << signal
-                      << " rst=" << static_cast<unsigned>(dut.rst)
-                      << " en=" << static_cast<unsigned>(dut.en)
+                      << " item=" << item
                       << " expected=" << want
                       << " actual=" << actual << '\n';
         }
     }
 
-    // 进入和退出时 clk=0；每次推进 10 ns、执行三次检查。
-    // 它不统计 body_steps，因为复位周期不属于用例正文。
-    void tick(bool rst, bool en)
+    // 进入和退出时 clk=0；每次推进 10 ns。
+    void tick(bool rst, bool start, bool check_before = true)
     {
-        const std::uint32_t old = expected_state;
-        const std::uint32_t next = model_next(old, rst, en);
+        const unsigned old_done = dut.done;
+        const unsigned old_busy = dut.busy;
 
         context.timeInc(1);
         dut.rst = rst;
-        dut.en = en;
+        dut.start = start;
+        dut.stall = stall_mode;
         dut.eval();
-        check_equal("low-before-rise", "q", old, dut.q);
+
+        if (check_before)
+        {
+            check_equal("low/done", old_done, dut.done);
+            check_equal("low/busy", old_busy, dut.busy);
+        }
 
         context.timeInc(4);
         dut.clk = 1;
         dut.eval();
         ++cycle;
-        expected_state = next;
-        const std::uint32_t observed = dut.q;
-        check_equal("rise", "q", expected_state, observed);
+
+        const unsigned new_done = dut.done;
+        const unsigned new_busy = dut.busy;
 
         context.timeInc(5);
         dut.clk = 0;
         dut.eval();
-        check_equal("fall", "q", expected_state, dut.q);
+        check_equal("fall/done", new_done, dut.done);
+        check_equal("fall/busy", new_busy, dut.busy);
     }
 
-    void begin_case(const Case &c)
+    bool wait_until(unsigned max_cycles, unsigned &waited)
     {
-        case_id = completed + 1;
-        case_name = c.name;
-
         // TODO 1：
-        // 将 body_steps 清零。
-        // 调用一次 tick，执行 rst=true、en=false 的复位周期。
-        // 不直接修改 expected_state，不清空整场统计。
-        // #error "TODO 1: isolate the case"
+        // ① 每次调用先把 waited 设为 0。
+        // ② 当前 done 已为 1，立即返回 true。
+        // ③ 最多推进 max_cycles 个周期：
+        //    tick(false, false)，然后增加 waited；
+        //    检查求值后的 done，为 1 就返回 true。
+        // ④ 预算耗尽仍未完成，返回 false。
+        // 不复位 DUT，不清空 errors，不修改 stall_mode。
+        // #error "TODO 1: implement bounded waiting"
         // TODO 1 My Code Start
-        body_steps = 0;
-        tick(true, false);
+        waited = 0;
+        if (dut.done)
+            return true;
+        for (unsigned i = 0; i < max_cycles; ++i)
+        {
+            tick(false, false);
+            ++waited;
+            if (dut.done)
+                return true;
+        }
+        return false;
         // TODO 1 My Code End
+    }
+
+    void check_zero_budget(bool want_done)
+    {
+        // TODO 2：
+        // 保存调用前的 cycle 和 context.time()。
+        // 声明 unsigned waited = 999。
+        // 调用 wait_until(0, waited)。
+        // 使用 check_equal 检查以下四项：
+        //   "zero/result"：返回值等于 want_done；
+        //   "zero/waited"：waited 等于 0；
+        //   "zero/cycle" ：cycle 没有变化；
+        //   "zero/time"  ：context.time() 没有变化。
+        // #error "TODO 2: verify zero-budget behavior"
+        // TODO 2 My Code Start
+        const unsigned old_cycle = cycle;
+        const vluint64_t old_time = context.time();
+        unsigned waited = 999;
+        const bool got = wait_until(0, waited);
+        check_equal("zero/result", want_done, got);
+        check_equal("zero/waited", 0, waited);
+        check_equal("zero/cycle", old_cycle, cycle);
+        check_equal("zero/time", old_time, context.time());
+        // TODO 2 My Code End
     }
 
 public:
     explicit Testbench(VerilatedContext &ctx)
         : context(ctx), dut(&ctx)
     {
-        // 首次建立已知状态，不检查未保证的上电输出。
         dut.clk = 0;
         dut.rst = 1;
-        dut.en = 0;
+        dut.start = 0;
+        dut.stall = 0;
         dut.eval();
 
-        context.timeInc(5);
-        dut.clk = 1;
-        dut.eval();
-        ++cycle;
-        check_equal("init-rise", "q", 0, dut.q);
-
-        context.timeInc(5);
-        dut.clk = 0;
-        dut.eval();
-        check_equal("init-fall", "q", 0, dut.q);
+        // 第一次复位前，不假设上电寄存器值。
+        tick(true, false, false);
+        check_equal("init/done", 0, dut.done);
+        check_equal("init/busy", 0, dut.busy);
     }
 
-    void run_case(const Case &c)
+    void run_case(const char *name, bool stall,
+                  unsigned budget, bool want_complete,
+                  unsigned want_waited)
     {
-        begin_case(c);
+        case_id = completed + 1;
+        case_name = name;
+        stall_mode = stall;
 
-        // TODO 2：
-        // 遍历 i=0 到 c.steps-1。
-        // 每次调用 tick(false, c.enables[i])，
-        // 然后将 body_steps 加一。
-        // 不用 dut.q 修改参考状态。
-        // #error "TODO 2: run the case body"
-        // TODO 2 My Code Start
-        for (int i = 0; i < c.steps; ++i)
+        tick(true, false);
+        check_equal("reset/done", 0, dut.done);
+        check_equal("reset/busy", 0, dut.busy);
+
+        // 空闲且复位已释放，接受一次 start。
+        tick(false, true);
+        check_equal("launch/done", 0, dut.done);
+        check_equal("launch/busy", 1, dut.busy);
+
+        check_zero_budget(false);
+
+        unsigned waited = 999;
+        const bool got = wait_until(budget, waited);
+
+        if (!got)
         {
-            tick(false, c.enables[i]);
-            ++body_steps;
+            std::cout << "TIMEOUT case=" << case_id
+                      << " name=" << case_name
+                      << " cycle=" << cycle
+                      << " time_ns=" << context.time()
+                      << " budget=" << budget
+                      << " waited=" << waited
+                      << " expected=" << (!want_complete)
+                      << " done=" << static_cast<unsigned>(dut.done)
+                      << " busy=" << static_cast<unsigned>(dut.busy)
+                      << '\n';
         }
-        // TODO 2 My Code End
 
-        // 独立的场景后置条件，不能换成 expected_state。
-        check_equal("case-end", "q", c.final_q, dut.q);
-        check_equal("case-end", "body_steps", c.steps, body_steps);
+        check_equal("wait/completed", want_complete, got);
+        check_equal("wait/cycles", want_waited, waited);
+        check_equal("wait/busy", !want_complete, dut.busy);
+
+        // 已经完成时，零预算也应立即成功。
+        if (got)
+            check_zero_budget(true);
 
         ++completed;
         std::cout << "CASE case=" << case_id
                   << " name=" << case_name
-                  << " body_steps=" << body_steps
-                  << " final_q=" << static_cast<unsigned>(dut.q)
-                  << " cycle=" << cycle
-                  << " time_ns=" << context.time()
+                  << " waited=" << waited
+                  << " completed=" << got
                   << " total_errors=" << errors << '\n';
     }
 
     int finish()
     {
-        check_equal("end", "clk", 0, dut.clk);
-        check_equal("end", "time_ns", 170, context.time());
+        check_equal("end/clk", 0, dut.clk);
         dut.final();
 
-        if (completed != 4 || cycle != 17 || checks != 60)
+        if (completed != 4)
         {
             std::cerr << "INCOMPLETE cases=" << completed
-                      << " cycles=" << cycle
-                      << " checks=" << checks
-                      << " expected=4/17/60\n";
+                      << " expected=4\n";
             return 2;
         }
 
@@ -189,29 +215,17 @@ int main(int argc, char **argv)
     VerilatedContext context;
     context.commandArgs(argc, argv);
 
-    const bool reverse =
-        argc > 1 && std::string(argv[1]) == "--reverse";
-
-    const Case a{"A", {true, true, true, false}, 3, 3};
-    const Case b{"B", {false, true, false, false}, 2, 1};
-    const Case c{"C", {true, true, true, true}, 4, 0};
-    const Case cases[]{a, b, a, c};
+    const bool fault =
+        argc > 1 && std::string(argv[1]) == "--fault";
 
     Testbench tb{context};
 
-    // TODO 3：
-    // 循环执行四个用例。
-    // 正序索引：i；逆序索引：3u-i。
-    // 根据 reverse 选择索引，再调用 tb.run_case(cases[index])。
-    // 使用同一个 tb，不重新创建对象。
-    // #error "TODO 3: select the execution order"
-    // TODO 3 My Code Start
-    for (unsigned i = 0; i < 4; ++i)
-    {
-        const unsigned index = reverse ? 3u - i : i;
-        tb.run_case(cases[index]);
-    }
-    // TODO 3 My Code End
+    // --fault 只改变第一个用例的实际故障开关，
+    // 不改变其“应当完成”的期望。
+    tb.run_case("normal", fault, 5, true, 3);
+    tb.run_case("boundary", false, 3, true, 3);
+    tb.run_case("stuck", true, 4, false, 4);
+    tb.run_case("recovery", false, 3, true, 3);
 
     return tb.finish();
 }
