@@ -1,207 +1,192 @@
 //
-#include "Vdelayed_done.h"
+#include "Vcounter4.h"
 #include "verilated.h"
 
 #include <cstdint>
 #include <iostream>
+#include <random>
+#include <stdexcept>
 #include <string>
+#include <vector>
+
+// 来自接口规格：复位、模 16 递增、保持。
+static unsigned model_next(unsigned old, bool rst, bool en)
+{
+    // TODO 1：返回下一状态。
+    // 不读取 DUT；加法使用 unsigned，然后限制为 4 位。
+    // #error "TODO 1: implement the specification model"
+    // TODO 1 My Code Start
+    if (rst)
+    {
+        return 0;
+    }
+    else if (en)
+    {
+        return ++old & 0xF;
+    }
+    else
+    {
+        return old;
+    }
+    // TODO 1 My Code End
+}
+
+struct InputRecord
+{
+    unsigned cycle;
+    bool rst;
+    bool en;
+    unsigned old_state;
+    unsigned next_state;
+};
 
 class Testbench
 {
 private:
     VerilatedContext &context;
-    Vdelayed_done dut;
+    Vcounter4 dut;
+    const std::uint32_t seed;
 
     unsigned cycle = 0;
-    unsigned completed = 0;
+    unsigned expected_state = 0;
     unsigned checks = 0;
     unsigned errors = 0;
-    unsigned case_id = 0;
+    unsigned random_steps = 0;
     const char *case_name = "init";
-    bool stall_mode = false;
+    std::vector<InputRecord> recent;
+
+    void remember(const InputRecord &row)
+    {
+        if (recent.size() == 8)
+            recent.erase(recent.begin());
+        recent.push_back(row);
+    }
 
     void check_equal(const char *item,
                      std::uint64_t want, std::uint64_t actual)
     {
         ++checks;
-        if (want != actual)
+        if (want == actual)
+            return;
+
+        ++errors;
+        std::cerr << "FAIL seed=" << seed
+                  << " case=" << case_name
+                  << " cycle=" << cycle
+                  << " time_ns=" << context.time()
+                  << " item=" << item
+                  << " rst=" << static_cast<unsigned>(dut.rst)
+                  << " en=" << static_cast<unsigned>(dut.en)
+                  << " expected=" << want
+                  << " actual=" << actual << '\n';
+
+        // 只在首次失败时展开历史，避免重复刷屏。
+        if (errors == 1)
         {
-            ++errors;
-            std::cerr << "FAIL case=" << case_id
-                      << " name=" << case_name
-                      << " cycle=" << cycle
-                      << " time_ns=" << context.time()
-                      << " item=" << item
-                      << " expected=" << want
-                      << " actual=" << actual << '\n';
+            for (const auto &row : recent)
+            {
+                std::cerr << "HIST cycle=" << row.cycle
+                          << " rst=" << row.rst
+                          << " en=" << row.en
+                          << " old=" << row.old_state
+                          << " next=" << row.next_state << '\n';
+            }
         }
     }
 
-    // 进入和退出时 clk=0；每次推进 10 ns。
-    void tick(bool rst, bool start, bool check_before = true)
+    // cycle 表示当前正在执行的 tick 编号。
+    // 进入、退出时 clk=0，每拍推进 10 ns。
+    void tick(bool rst, bool en, bool check_before = true)
     {
-        const unsigned old_done = dut.done;
-        const unsigned old_busy = dut.busy;
+        ++cycle;
+        const unsigned old = expected_state;
+        const unsigned next = model_next(old, rst, en);
+        remember({cycle, rst, en, old, next});
 
         context.timeInc(1);
         dut.rst = rst;
-        dut.start = start;
-        dut.stall = stall_mode;
+        dut.en = en;
         dut.eval();
-
         if (check_before)
-        {
-            check_equal("low/done", old_done, dut.done);
-            check_equal("low/busy", old_busy, dut.busy);
-        }
+            check_equal("low/q", old, dut.q);
 
         context.timeInc(4);
         dut.clk = 1;
         dut.eval();
-        ++cycle;
-
-        const unsigned new_done = dut.done;
-        const unsigned new_busy = dut.busy;
+        expected_state = next;
+        check_equal("rise/q", next, dut.q);
 
         context.timeInc(5);
         dut.clk = 0;
         dut.eval();
-        check_equal("fall/done", new_done, dut.done);
-        check_equal("fall/busy", new_busy, dut.busy);
-    }
+        check_equal("fall/q", expected_state, dut.q);
 
-    bool wait_until(unsigned max_cycles, unsigned &waited)
-    {
-        // TODO 1：
-        // ① 每次调用先把 waited 设为 0。
-        // ② 当前 done 已为 1，立即返回 true。
-        // ③ 最多推进 max_cycles 个周期：
-        //    tick(false, false)，然后增加 waited；
-        //    检查求值后的 done，为 1 就返回 true。
-        // ④ 预算耗尽仍未完成，返回 false。
-        // 不复位 DUT，不清空 errors，不修改 stall_mode。
-        // #error "TODO 1: implement bounded waiting"
-        // TODO 1 My Code Start
-        waited = 0;
-        if (dut.done)
-            return true;
-        for (unsigned i = 0; i < max_cycles; ++i)
-        {
-            tick(false, false);
-            ++waited;
-            if (dut.done)
-                return true;
-        }
-        return false;
-        // TODO 1 My Code End
-    }
-
-    void check_zero_budget(bool want_done)
-    {
-        // TODO 2：
-        // 保存调用前的 cycle 和 context.time()。
-        // 声明 unsigned waited = 999。
-        // 调用 wait_until(0, waited)。
-        // 使用 check_equal 检查以下四项：
-        //   "zero/result"：返回值等于 want_done；
-        //   "zero/waited"：waited 等于 0；
-        //   "zero/cycle" ：cycle 没有变化；
-        //   "zero/time"  ：context.time() 没有变化。
-        // #error "TODO 2: verify zero-budget behavior"
-        // TODO 2 My Code Start
-        const unsigned old_cycle = cycle;
-        const vluint64_t old_time = context.time();
-        unsigned waited = 999;
-        const bool got = wait_until(0, waited);
-        check_equal("zero/result", want_done, got);
-        check_equal("zero/waited", 0, waited);
-        check_equal("zero/cycle", old_cycle, cycle);
-        check_equal("zero/time", old_time, context.time());
-        // TODO 2 My Code End
+        // 完整输入记录，用来比较两次运行是否完全一致。
+        std::cout << "STEP seed=" << seed
+                  << " case=" << case_name
+                  << " cycle=" << cycle
+                  << " rst=" << rst
+                  << " en=" << en
+                  << " old=" << old
+                  << " next=" << next
+                  << " actual=" << static_cast<unsigned>(dut.q)
+                  << '\n';
     }
 
 public:
-    explicit Testbench(VerilatedContext &ctx)
-        : context(ctx), dut(&ctx)
+    Testbench(VerilatedContext &ctx, std::uint32_t s)
+        : context(ctx), dut(&ctx), seed(s)
     {
         dut.clk = 0;
         dut.rst = 1;
-        dut.start = 0;
-        dut.stall = 0;
+        dut.en = 0;
         dut.eval();
 
-        // 第一次复位前，不假设上电寄存器值。
+        // 首次复位前，不假设 DUT 上电值。
         tick(true, false, false);
-        check_equal("init/done", 0, dut.done);
-        check_equal("init/busy", 0, dut.busy);
     }
 
-    void run_case(const char *name, bool stall,
-                  unsigned budget, bool want_complete,
-                  unsigned want_waited)
+    void run()
     {
-        case_id = completed + 1;
-        case_name = name;
-        stall_mode = stall;
+        case_name = "directed";
+        for (unsigned i = 0; i < 17; ++i)
+            tick(false, true); // 经历 15→0，最后到 1
+        tick(false, false);    // 非零状态保持
+        tick(true, true);      // 从 1 清零，验证复位优先
 
-        tick(true, false);
-        check_equal("reset/done", 0, dut.done);
-        check_equal("reset/busy", 0, dut.busy);
+        case_name = "random";
+        std::mt19937 rng(seed);
 
-        // 空闲且复位已释放，接受一次 start。
-        tick(false, true);
-        check_equal("launch/done", 0, dut.done);
-        check_equal("launch/busy", 1, dut.busy);
-
-        check_zero_budget(false);
-
-        unsigned waited = 999;
-        const bool got = wait_until(budget, waited);
-
-        if (!got)
+        // TODO 2：恰好执行 200 个周期。
+        // 每拍：
+        // ① 调用一次 rng()，保存到 word。
+        // ② word 低四位全为 0 时 rst=true。
+        // ③ word 的第 4 位为 1 时 en=true。
+        // ④ tick(rst, en)。
+        // ⑤ ++random_steps。
+        // 不重新播种，不清空 expected_state/errors/cycle。
+        // #error "TODO 2: drive the reproducible random sequence"
+        // TODO 2 My Code Start
+        for (unsigned i = 0; i < 200; ++i)
         {
-            std::cout << "TIMEOUT case=" << case_id
-                      << " name=" << case_name
-                      << " cycle=" << cycle
-                      << " time_ns=" << context.time()
-                      << " budget=" << budget
-                      << " waited=" << waited
-                      << " expected=" << (!want_complete)
-                      << " done=" << static_cast<unsigned>(dut.done)
-                      << " busy=" << static_cast<unsigned>(dut.busy)
-                      << '\n';
+            const auto word = rng();
+            const bool rst = (word & 0xF) == 0;
+            const bool en = ((word >> 4) & 0x1) == 1;
+            tick(rst, en);
+            ++random_steps;
         }
-
-        check_equal("wait/completed", want_complete, got);
-        check_equal("wait/cycles", want_waited, waited);
-        check_equal("wait/busy", !want_complete, dut.busy);
-
-        // 已经完成时，零预算也应立即成功。
-        if (got)
-            check_zero_budget(true);
-
-        ++completed;
-        std::cout << "CASE case=" << case_id
-                  << " name=" << case_name
-                  << " waited=" << waited
-                  << " completed=" << got
-                  << " total_errors=" << errors << '\n';
+        // TODO 2 My Code End
     }
 
     int finish()
     {
+        check_equal("end/random_steps", 200, random_steps);
         check_equal("end/clk", 0, dut.clk);
         dut.final();
 
-        if (completed != 4)
-        {
-            std::cerr << "INCOMPLETE cases=" << completed
-                      << " expected=4\n";
-            return 2;
-        }
-
         std::cout << (errors == 0 ? "PASS" : "FAIL")
-                  << " cases=" << completed
+                  << " seed=" << seed
+                  << " random_steps=" << random_steps
                   << " cycles=" << cycle
                   << " checks=" << checks
                   << " errors=" << errors
@@ -212,20 +197,35 @@ public:
 
 int main(int argc, char **argv)
 {
+    // 可选参数：十进制 uint32_t seed。
+    std::uint32_t seed = 20261013u;
+    try
+    {
+        if (argc > 2)
+            throw std::invalid_argument("too many arguments");
+        if (argc == 2)
+        {
+            const std::string text = argv[1];
+            if (text.empty() ||
+                text.find_first_not_of("0123456789") != std::string::npos)
+                throw std::invalid_argument("not decimal");
+            const auto value = std::stoull(text);
+            if (value > UINT32_MAX)
+                throw std::out_of_range("seed too large");
+            seed = static_cast<std::uint32_t>(value);
+        }
+    }
+    catch (const std::exception &)
+    {
+        std::cerr << "Usage: " << argv[0]
+                  << " [decimal_uint32_seed]\n";
+        return 2;
+    }
+
+    std::cout << "RUN seed=" << seed << '\n';
     VerilatedContext context;
     context.commandArgs(argc, argv);
-
-    const bool fault =
-        argc > 1 && std::string(argv[1]) == "--fault";
-
-    Testbench tb{context};
-
-    // --fault 只改变第一个用例的实际故障开关，
-    // 不改变其“应当完成”的期望。
-    tb.run_case("normal", fault, 5, true, 3);
-    tb.run_case("boundary", false, 3, true, 3);
-    tb.run_case("stuck", true, 4, false, 4);
-    tb.run_case("recovery", false, 3, true, 3);
-
+    Testbench tb{context, seed};
+    tb.run();
     return tb.finish();
 }
