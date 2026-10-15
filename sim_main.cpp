@@ -1,52 +1,38 @@
 //
-#include "Vcounter_param.h"
+#include "Vpipe2.h"
 #include "verilated.h"
 
 #include <cstdint>
+#include <deque>
 #include <iostream>
 
-//
-#ifdef __INTELLISENSE__
-#ifndef TB_WIDTH
-#define TB_WIDTH 8
-#endif
-#endif
-// 上面这段是消除vscode报错用的
-
-#ifndef TB_WIDTH
-// #error "Build with -CFLAGS containing -DTB_WIDTH=..."
-#endif
-
-static constexpr unsigned Width = TB_WIDTH;
-static_assert(Width >= 1 && Width <= 8,
-              "This exercise supports widths 1 through 8");
-
-// Modulus：W 位计数器的状态数。
-// Mask：W 位计数器的最大值。
-static constexpr std::uint64_t Modulus = std::uint64_t{1} << Width;
-static constexpr std::uint64_t Mask = Modulus - 1u;
-//
-
-static std::uint64_t model_next(std::uint64_t old,
-                                bool rst, bool en)
+struct Slot
 {
-    if (rst)
-        return 0;
-    if (en)
-        return (old + 1u) % Modulus;
-    return old;
+    bool valid;
+    std::uint32_t data;
+};
+
+// 独立参考计算：来自接口的模 256 规格。
+static std::uint32_t model_data(std::uint32_t x)
+{
+    return (x + 1u) % 256u;
 }
 
 class Testbench
 {
 private:
     VerilatedContext &context;
-    Vcounter_param dut;
+    Vpipe2 dut;
 
-    std::uint64_t expected_state = 0;
+    // 第 n 沿输入，第 n+1 沿输出：
+    // 初始放一个无效位置。
+    std::deque<Slot> expected{Slot{false, 0}};
+
     unsigned cycle = 0;
     unsigned checks = 0;
     unsigned errors = 0;
+    unsigned sent = 0;
+    unsigned received = 0;
     const char *case_name = "init";
 
     void check_equal(const char *item,
@@ -58,8 +44,7 @@ private:
             return;
 
         ++errors;
-        std::cerr << "FAIL width=" << Width
-                  << " case=" << case_name
+        std::cerr << "FAIL case=" << case_name
                   << " cycle=" << cycle
                   << " time_ns=" << context.time()
                   << " item=" << item
@@ -68,29 +53,100 @@ private:
     }
 
     // 进入、退出时 clk=0；每拍推进 10 ns。
-    void tick(bool rst, bool en, bool check_before = true)
+    void tick(bool rst, bool valid, std::uint32_t data,
+              bool check_before = true)
     {
         ++cycle;
-        const auto old = expected_state;
-        const auto next = model_next(old, rst, en);
+        const unsigned old_valid = dut.out_valid;
+        const unsigned old_data = dut.out_data;
 
         context.timeInc(1);
         dut.rst = rst;
-        dut.en = en;
+        dut.in_valid = valid;
+        dut.in_data = data & 0xffu;
         dut.eval();
+
         if (check_before)
-            check_equal("low/q", old, dut.q);
+        {
+            check_equal("low/out_valid", old_valid, dut.out_valid);
+            check_equal("low/out_data", old_data, dut.out_data);
+        }
+
+        // 在边沿前，根据本拍输入预测边沿后的输出。
+        Slot due{false, 0};
+
+        if (rst)
+        {
+            expected.assign(1, Slot{false, 0});
+        }
+        else
+        {
+            if (valid)
+                ++sent;
+
+            // TODO 1：
+            // 1. 构造本拍 Slot：valid 来自输入。
+            //    有效时用 model_data(data) 计算数据；
+            //    无效时 data 字段可以填 0。
+            // 2. 无论 valid 是什么，都把这个位置加入队尾。
+            // 3. 把队首复制给 due，再删除队首。
+            // 不得从 DUT 输出生成期望值。
+            // #error "TODO 1: advance the expected time slots"
+            // TODO 1 My Code Start
+            Slot cur{valid, valid ? model_data(data) : 0u};
+            expected.push_back(cur);
+            due = expected.front();
+            expected.pop_front();
+            // TODO 1 My Code End
+        }
 
         context.timeInc(4);
         dut.clk = 1;
         dut.eval();
-        expected_state = next;
-        check_equal("rise/q", next, dut.q);
+
+        // TODO 2：
+        // 每拍检查 out_valid 与 due.valid 相等。
+        // 仅当 due.valid 为真时，检查 out_data 与 due.data 相等。
+        // 使用 check_equal：
+        //   "rise/out_valid"
+        //   "rise/out_data"
+        // 是否检查数据，必须由期望 valid 决定。
+        // #error "TODO 2: check validity and valid output data"
+        // TODO 2 My Code Start
+        check_equal("rise/out_valid", due.valid ? 1u : 0u, dut.out_valid);
+        if (due.valid)
+        {
+            check_equal("rise/out_data", due.data, dut.out_data);
+        }
+        // TODO 2 My Code End
+
+        if (dut.out_valid)
+            ++received;
+
+        if (due.valid)
+        {
+            std::cout << "OUT case=" << case_name
+                      << " cycle=" << cycle
+                      << " expected=" << due.data
+                      << " actual=" << unsigned(dut.out_data)
+                      << '\n';
+        }
+
+        const unsigned rise_valid = dut.out_valid;
+        const unsigned rise_data = dut.out_data;
 
         context.timeInc(5);
         dut.clk = 0;
         dut.eval();
-        check_equal("fall/q", expected_state, dut.q);
+
+        check_equal("fall/out_valid", rise_valid, dut.out_valid);
+        check_equal("fall/out_data", rise_data, dut.out_data);
+    }
+
+    void drain()
+    {
+        tick(false, false, 0);
+        tick(false, false, 0);
     }
 
 public:
@@ -99,61 +155,59 @@ public:
     {
         dut.clk = 0;
         dut.rst = 1;
-        dut.en = 0;
+        dut.in_valid = 0;
+        dut.in_data = 0;
         dut.eval();
 
-        // 首次有效复位前，不假设 DUT 上电值。
-        tick(true, false, false);
+        // 第一次同步复位前，不假设上电输出。
+        tick(true, false, 0, false);
     }
 
     void run()
     {
-        case_name = "config";
-        check_equal("build/width", Width, dut.width_tag);
-        if (dut.width_tag != Width)
-            return;
+        case_name = "single";
+        tick(false, true, 37);
+        drain();
 
-        // 使用 tick()；不得直接修改 expected_state 或 dut.q。
+        case_name = "continuous";
+        for (unsigned x : {0u, 1u, 254u, 255u})
+            tick(false, true, x);
+        drain();
 
-        case_name = "count_to_max";
-        // 从零开始，恰好 Mask 次有效递增，停在最大值。
-        for (std::uint64_t i = 0; i < Mask; ++i)
-            tick(false, true);
-
-        case_name = "hold_max";
-        // 禁用一拍，保持最大值。
-        tick(false, false);
-
-        case_name = "wrap";
-        // 使能一拍，最大值回绕到零。
-        tick(false, true);
-
-        case_name = "hold_zero";
-        // 禁用一拍，保持零。
-        tick(false, false);
-
-        case_name = "reset_priority";
-        // 先使能一拍到 1，再施加 rst=en=1 一拍清零。
-        tick(false, true);
-        tick(true, true);
+        case_name = "bubbles";
+        tick(false, true, 42);
+        tick(false, false, 99);
+        tick(false, true, 7);
+        tick(false, false, 123);
+        tick(false, false, 55);
+        tick(false, true, 128);
+        drain();
     }
 
     int finish()
     {
         case_name = "finish";
-        if (dut.width_tag == Width)
-            check_equal("end/cycles", Modulus + 5u, cycle);
-        check_equal("end/clk", 0, dut.clk);
-        check_equal("end/q", 0, dut.q);
+
+        unsigned pending = 0;
+        for (const auto &slot : expected)
+            pending += slot.valid ? 1u : 0u;
+
+        check_equal("end/sent", 8, sent);
+        check_equal("end/received", 8, received);
+        check_equal("end/pending", 0, pending);
+        check_equal("end/out_valid", 0, dut.out_valid);
 
         dut.final();
+
         std::cout << (errors == 0 ? "PASS" : "FAIL")
-                  << " width=" << Width
-                  << " mask=" << Mask
                   << " cycles=" << cycle
                   << " checks=" << checks
                   << " errors=" << errors
+                  << " sent=" << sent
+                  << " received=" << received
+                  << " pending=" << pending
                   << " time_ns=" << context.time() << '\n';
+
         return errors == 0 ? 0 : 1;
     }
 };
@@ -162,10 +216,6 @@ int main(int argc, char **argv)
 {
     VerilatedContext context;
     context.commandArgs(argc, argv);
-
-    std::cout << "RUN width=" << Width
-              << " modulus=" << Modulus
-              << " mask=" << Mask << '\n';
 
     Testbench tb{context};
     tb.run();

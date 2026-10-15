@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "counter_param.v",
+                "pipe2.v",
                 "--top-module",
-                "counter_param"
+                "pipe2"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "counter_param",
+                "pipe2",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "counter_param.v",
+                "pipe2.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vcounter_param",
+            "command": "./obj_dir/Vpipe2",
             "args": [],
             "problemMatcher": []
         }
