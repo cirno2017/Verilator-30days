@@ -12,7 +12,7 @@ struct Slot
     std::uint32_t data;
 };
 
-// 独立参考计算：来自接口的模 256 规格。
+// 来自接口规格，不读取 DUT 内部状态。
 static std::uint32_t model_data(std::uint32_t x)
 {
     return (x + 1u) % 256u;
@@ -23,9 +23,6 @@ class Testbench
 private:
     VerilatedContext &context;
     Vpipe2 dut;
-
-    // 第 n 沿输入，第 n+1 沿输出：
-    // 初始放一个无效位置。
     std::deque<Slot> expected{Slot{false, 0}};
 
     unsigned cycle = 0;
@@ -33,6 +30,7 @@ private:
     unsigned errors = 0;
     unsigned sent = 0;
     unsigned received = 0;
+    unsigned dropped = 0;
     const char *case_name = "init";
 
     void check_equal(const char *item,
@@ -57,13 +55,15 @@ private:
               bool check_before = true)
     {
         ++cycle;
+        data &= 0xffu;
+
         const unsigned old_valid = dut.out_valid;
         const unsigned old_data = dut.out_data;
 
         context.timeInc(1);
         dut.rst = rst;
         dut.in_valid = valid;
-        dut.in_data = data & 0xffu;
+        dut.in_data = data;
         dut.eval();
 
         if (check_before)
@@ -72,56 +72,66 @@ private:
             check_equal("low/out_data", old_data, dut.out_data);
         }
 
-        // 在边沿前，根据本拍输入预测边沿后的输出。
         Slot due{false, 0};
+        unsigned flushed = 0;
 
+        // 在上升沿前，根据规格预测本沿结果。
         if (rst)
         {
+            // TODO 1：复位参考模型。
+            // 1. 遍历 expected，把有效位置数累加到 flushed。
+            // 2. dropped 增加 flushed。
+            // 3. expected 恢复为一个无效位置。
+            // 不增加 sent；due 保持无效。
+            // #error "TODO 1: account for and flush pending transactions"
+            // TODO 1 My Code Start
+            for (const auto &slot : expected)
+                flushed += slot.valid ? 1u : 0u;
+            dropped += flushed;
             expected.assign(1, Slot{false, 0});
+            // TODO 1 My Code End
         }
         else
         {
             if (valid)
                 ++sent;
 
-            // TODO 1：
-            // 1. 构造本拍 Slot：valid 来自输入。
-            //    有效时用 model_data(data) 计算数据；
-            //    无效时 data 字段可以填 0。
-            // 2. 无论 valid 是什么，都把这个位置加入队尾。
-            // 3. 把队首复制给 due，再删除队首。
-            // 不得从 DUT 输出生成期望值。
-            // #error "TODO 1: advance the expected time slots"
-            // TODO 1 My Code Start
-            Slot cur{valid, valid ? model_data(data) : 0u};
-            expected.push_back(cur);
+            // TODO 2：推进一个时间位置。
+            // 1. 无论 valid 是什么，都向队尾加入 Slot。
+            //    有效数据使用 model_data(data)，无效数据填 0。
+            // 2. 复制队首到 due，再删除队首。
+            // #error "TODO 2: advance the expected time slots"
+            // TODO 2 My Code Start
+            expected.push_back(Slot{valid, valid ? model_data(data) : 0u});
             due = expected.front();
             expected.pop_front();
-            // TODO 1 My Code End
+            // TODO 2 My Code End
         }
 
         context.timeInc(4);
         dut.clk = 1;
         dut.eval();
 
-        // TODO 2：
-        // 每拍检查 out_valid 与 due.valid 相等。
-        // 仅当 due.valid 为真时，检查 out_data 与 due.data 相等。
-        // 使用 check_equal：
-        //   "rise/out_valid"
-        //   "rise/out_data"
-        // 是否检查数据，必须由期望 valid 决定。
-        // #error "TODO 2: check validity and valid output data"
-        // TODO 2 My Code Start
+        // TODO 3：逐拍检查。
+        // 每拍检查 "rise/out_valid"。
+        // 仅由 due.valid 决定是否检查 "rise/out_data"。
+        // 使用 check_equal；不得修改 due 或 DUT 输出。
+        // #error "TODO 3: compare expected validity and data"
+        // TODO 3 My Code Start
         check_equal("rise/out_valid", due.valid ? 1u : 0u, dut.out_valid);
         if (due.valid)
-        {
             check_equal("rise/out_data", due.data, dut.out_data);
-        }
-        // TODO 2 My Code End
+        // TODO 3 My Code End
 
         if (dut.out_valid)
             ++received;
+
+        if (flushed != 0)
+        {
+            std::cout << "FLUSH case=" << case_name
+                      << " cycle=" << cycle
+                      << " dropped=" << flushed << '\n';
+        }
 
         if (due.valid)
         {
@@ -165,13 +175,10 @@ public:
 
     void run()
     {
-        case_name = "single";
-        tick(false, true, 37);
-        drain();
-
         case_name = "continuous";
-        for (unsigned x : {0u, 1u, 254u, 255u})
-            tick(false, true, x);
+        tick(false, true, 10);
+        tick(false, true, 20);
+        tick(false, true, 255);
         drain();
 
         case_name = "bubbles";
@@ -180,7 +187,20 @@ public:
         tick(false, true, 7);
         tick(false, false, 123);
         tick(false, false, 55);
-        tick(false, true, 128);
+
+        case_name = "mid_reset";
+        tick(false, true, 100);
+        tick(false, true, 101);
+
+        // 有待输出事务时复位；复位期间的输入被忽略。
+        tick(true, true, 222);
+        tick(true, true, 223);
+
+        // 先给一个气泡，观察是否有旧事务重新出现。
+        tick(false, false, 77);
+
+        tick(false, true, 200);
+        tick(false, true, 201);
         drain();
     }
 
@@ -192,10 +212,13 @@ public:
         for (const auto &slot : expected)
             pending += slot.valid ? 1u : 0u;
 
-        check_equal("end/sent", 8, sent);
+        check_equal("end/sent", 9, sent);
         check_equal("end/received", 8, received);
+        check_equal("end/dropped", 1, dropped);
         check_equal("end/pending", 0, pending);
         check_equal("end/out_valid", 0, dut.out_valid);
+        check_equal("end/balance",
+                    sent, received + dropped + pending);
 
         dut.final();
 
@@ -205,6 +228,7 @@ public:
                   << " errors=" << errors
                   << " sent=" << sent
                   << " received=" << received
+                  << " dropped=" << dropped
                   << " pending=" << pending
                   << " time_ns=" << context.time() << '\n';
 

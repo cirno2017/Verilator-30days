@@ -15,6 +15,7 @@ module pipe2 (
   always_ff @(posedge clk) begin
     if (rst) begin
       stage_valid <= 1'b0;
+      // stage_valid <= in_valid;
       stage_data  <= '0;
       out_valid   <= 1'b0;
       out_data    <= '0;
