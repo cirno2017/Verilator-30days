@@ -1,4 +1,4 @@
-sim_main.o: ../sim_main.cpp Vpipe2.h \
+sim_main.o: ../sim_main.cpp Vrv_buffer.h \
  /usr/share/verilator/include/verilated.h \
  /usr/share/verilator/include/verilatedos.h \
  /usr/share/verilator/include/verilated_config.h \
