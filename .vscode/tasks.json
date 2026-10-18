@@ -7,9 +7,9 @@
             "command": "verilator",
             "args": [
                 "--cc",
-                "rv_buffer.v",
+                "fifo4.v",
                 "--top-module",
-                "rv_buffer"
+                "fifo4"
             ],
             "problemMatcher": []
         },
@@ -23,10 +23,10 @@
                 "--build",
                 "-Wall",
                 "--top-module",
-                "rv_buffer",
+                "fifo4",
                 "-CFLAGS",
                 "\"-std=c++17\"",
-                "rv_buffer.v",
+                "fifo4.v",
                 "sim_main.cpp"
             ],
             "problemMatcher": []
@@ -34,7 +34,7 @@
         {
             "label": "Verilator Run",
             "type": "shell",
-            "command": "./obj_dir/Vrv_buffer",
+            "command": "./obj_dir/Vfifo4",
             "args": [],
             "problemMatcher": []
         }
