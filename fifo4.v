@@ -36,11 +36,11 @@ module fifo4 (
     end else begin
       if (push) begin
         mem[wr_ptr] <= in_data;
-        // mem[wr_ptr] <= in_data ^ 8'h01;
         wr_ptr <= wr_ptr + 2'd1;
       end
 
       if (pop) rd_ptr <= rd_ptr + 2'd1;
+      // if (pop) rd_ptr <= (rd_ptr == 2'd3) ? 2'd3 : rd_ptr + 2'd1;
 
       case ({
         push, pop

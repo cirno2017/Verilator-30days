@@ -1,4 +1,5 @@
 //
+//
 #include "Vfifo4.h"
 #include "verilated.h"
 
@@ -204,41 +205,121 @@ public:
         tick(true, false, 0, false, false);
     }
 
+    // 调用前，FIFO 必须为空。
+    // 下游不接收，连续发送四笔：first + 17*i。
+    void fill4(unsigned first)
+    {
+        // TODO 4：
+        // 用循环驱动四拍。
+        // 每拍：rst=false，valid=true，ready=false。
+        // 数据依次为 first、first+17、first+34、first+51。
+        // #error "TODO 4: fill an empty FIFO"
+        // TODO 4 My Code Start
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            tick(false, true, first + 17 * i, false);
+        }
+        // TODO 4 My Code Start
+
+        check_equal("fill/pending", 4, expected.size());
+    }
+
+    // 停止发送，并在最多8拍内排空。
+    // 不得直接修改 expected。
+    void drain_all()
+    {
+        const std::uint64_t want = expected.size();
+        const unsigned before = received;
+
+        for (unsigned waited = 0;
+             !expected.empty() && waited < 8;
+             ++waited)
+        {
+            // TODO 6：
+            // 推进一拍：不复位、不发送，下游 ready。
+            // 握手和参考队列更新全部交给 tick()。
+            // #error "TODO 6: drain with a finite bound"
+            // TODO 6 My Code Start
+            tick(false, false, 0, true);
+            // TODO 6 My Code Start
+        }
+
+        check_equal("drain/pending", 0, expected.size());
+        check_equal("drain/received", want, received - before);
+    }
+
     void run()
     {
         case_name = "empty";
         tick(false, false, 0, true); // cycle 2
 
-        case_name = "fill";
-        tick(false, true, 17, false); // cycle 3
-        tick(false, true, 34, false); // cycle 4
-        tick(false, true, 51, false); // cycle 5
-        tick(false, true, 68, false); // cycle 6：填满
+        case_name = "fill_first";
+        fill4(17); // cycles 3～6
 
-        case_name = "full";
-        tick(false, true, 85, false); // cycle 7：85 被阻塞
-        tick(false, true, 85, true);  // cycle 8：只取走17
+        case_name = "full_block";
+        tick(false, true, 85, false); // cycle 7
+        tick(false, true, 85, false); // cycle 8
+        check_equal("full/pending", 4, expected.size());
 
-        case_name = "exchange";
-        tick(false, true, 85, true); // cycle 9：取走34，接收85
+        case_name = "full_release";
+        tick(false, true, 85, true); // cycle 9：只输出17
+        check_equal("release/pending", 3, expected.size());
 
-        case_name = "drain";
-        tick(false, false, 0, true); // cycle 10：取走51
-        tick(false, false, 0, true); // cycle 11：取走68
-        tick(false, false, 0, true); // cycle 12：取走85
+        case_name = "accept_held";
+        tick(false, true, 85, false); // cycle 10：接收85
+        check_equal("accepted/pending", 4, expected.size());
+
+        case_name = "partial_refill";
+
+        // TODO 5：依次完成以下四拍。
+        //
+        // cycle 11、12：
+        //   不发送，下游 ready，取走34、51。
+        //   两拍后增加检查：
+        //     check_equal("partial/pending", 2, expected.size());
+        //
+        // cycle 13、14：
+        //   下游不 ready，依次发送102、119。
+        //
+        // 四拍均不复位；使用已有 tick()。
+        // #error "TODO 5: partially drain and refill"
+        // TODO 5 My Code Start
+        tick(false, false, 0, true); // cycle 11：取走34
+        tick(false, false, 0, true); // cycle 12：取走51
+        check_equal("partial/pending", 2, expected.size());
+        tick(false, true, 102, false); // cycle 13：发送102
+        tick(false, true, 119, false); // cycle 14：发送119
+        // TODO 5 My Code Start
+
+        check_equal("refill/pending", 4, expected.size());
+
+        case_name = "hold";
+        tick(false, false, 0, false); // cycle 15
+
+        case_name = "drain_first";
+        drain_all(); // 正常为 cycles 16～19
 
         case_name = "empty_again";
-        tick(false, false, 0, true); // cycle 13
+        tick(false, false, 0, true); // cycle 20
+
+        case_name = "fill_second";
+        fill4(136); // cycles 21～24
+
+        case_name = "drain_second";
+        drain_all(); // 正常为 cycles 25～28
+
+        case_name = "end_empty";
+        tick(false, false, 0, true); // cycle 29
     }
 
     int finish()
     {
         case_name = "finish";
 
-        check_equal("end/sent", 5, sent);
-        check_equal("end/received", 5, received);
-        check_equal("end/both", 1, both);
-        check_equal("end/blocked", 2, blocked);
+        check_equal("end/sent", 11, sent);
+        check_equal("end/received", 11, received);
+        check_equal("end/both", 0, both);
+        check_equal("end/blocked", 3, blocked);
         check_equal("end/pending", 0, expected.size());
         check_equal("end/out_valid", 0, dut.out_valid);
         check_equal("end/balance",
