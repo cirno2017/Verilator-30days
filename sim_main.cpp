@@ -250,6 +250,7 @@ public:
 
     void run()
     {
+        /*
         case_name = "empty";
         tick(false, false, 0, true); // cycle 2
 
@@ -310,15 +311,102 @@ public:
 
         case_name = "end_empty";
         tick(false, false, 0, true); // cycle 29
+        */
+        case_name = "empty_accept";
+        tick(false, true, 17, true); // cycle 2
+        check_equal("empty/received", 0, received);
+        check_equal("empty/pending", 1, expected.size());
+
+        case_name = "seed";
+        tick(false, true, 34, false); // cycle 3
+
+        case_name = "both_steady";
+
+        // TODO 7：
+        // cycle 4：发送51，下游ready。
+        // cycle 5：发送68，下游ready。
+        // 两拍均不复位；使用tick()。
+        //
+        // 完成后应：
+        //   输出过17、34；
+        //   参考队列为[51,68]。
+        // #error "TODO 7: two consecutive simultaneous transfers"
+        // TODO 7 My Code Start
+        tick(false, true, 51, true); // cycle 4：收17、发51
+        tick(false, true, 68, true); // cycle 5：收34、发68
+        // TODO 7 My Code End
+
+        check_equal("both/pending", 2, expected.size());
+        check_equal("both/count", 2, both);
+
+        case_name = "backpressure";
+
+        // TODO 8：
+        // cycle 6：发送85，下游不ready。
+        // cycle 7：发送102，下游不ready。
+        //   此时队列应满：[51,68,85,102]。
+        //   加入pending=4的检查。
+        //
+        // cycle 8、9：持续发送119，下游不ready。
+        // cycle 10：继续发送119，下游ready。
+        //   本沿只输出51，119仍未被接收。
+        //   加入pending=3、sent=6的检查。
+        //
+        // cycle 11：继续发送119，下游ready。
+        //   本沿输出68，同时接收119。
+        //
+        // 六拍均不复位；不要自行修改参考队列。
+        // #error "TODO 8: stall, fill, block, and resume"
+        // TODO 8 My Code Start
+        tick(false, true, 85, false);  // cycle 6：背压下写入85
+        tick(false, true, 102, false); // cycle 7：写满[51,68,85,102]
+        check_equal("fill/pending", 4, expected.size());
+        tick(false, true, 119, false); // cycle 8：满，119被阻塞
+        tick(false, true, 119, false); // cycle 9：满，119仍被阻塞
+        tick(false, true, 119, true);  // cycle 10：只输出51，仍不接收119
+        check_equal("release/pending", 3, expected.size());
+        check_equal("release/sent", 6, sent);
+        tick(false, true, 119, true); // cycle 11：输出68，同时接收119
+        // TODO 8 My Code End
+
+        check_equal("resume/pending", 3, expected.size());
+        check_equal("resume/both", 3, both);
+        check_equal("resume/blocked", 3, blocked);
+
+        case_name = "stream_tail";
+
+        // TODO 9：
+        // cycle 12：发送136，下游ready。
+        // cycle 13：不发送，下游ready。
+        // cycle 14：不发送，下游不ready。
+        //
+        // 三拍均不复位。
+        // 此时参考队列应为[119,136]。
+        // #error "TODO 9: finish the stream and stall again"
+        // TODO 9 My Code Start
+        tick(false, true, 136, true); // cycle 12：输出85，同时接收136
+        tick(false, false, 0, true);  // cycle 13：输出102
+        tick(false, false, 0, false); // cycle 14：再次背压，119保持有效稳定
+        // TODO 9 My Code End
+
+        check_equal("tail/pending", 2, expected.size());
+        check_equal("tail/both", 4, both);
+
+        case_name = "drain";
+        drain_all(); // 正常为cycles 15、16
+
+        case_name = "end_empty";
+        tick(false, false, 0, true); // 正常为cycle 17
+        tick(false, false, 0, true); // 新增的代码，原本没有，cycle 18：空FIFO保持稳定
     }
 
     int finish()
     {
         case_name = "finish";
 
-        check_equal("end/sent", 11, sent);
-        check_equal("end/received", 11, received);
-        check_equal("end/both", 0, both);
+        check_equal("end/sent", 8, sent);
+        check_equal("end/received", 8, received);
+        check_equal("end/both", 4, both);
         check_equal("end/blocked", 3, blocked);
         check_equal("end/pending", 0, expected.size());
         check_equal("end/out_valid", 0, dut.out_valid);

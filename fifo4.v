@@ -40,13 +40,13 @@ module fifo4 (
       end
 
       if (pop) rd_ptr <= rd_ptr + 2'd1;
-      // if (pop) rd_ptr <= (rd_ptr == 2'd3) ? 2'd3 : rd_ptr + 2'd1;
 
       case ({
         push, pop
       })
         2'b10:   count <= count + 3'd1;
         2'b01:   count <= count - 3'd1;
+        // 2'b11:   count <= count + 3'd1;  // 故意错误
         default: count <= count;
       endcase
     end
