@@ -1,11 +1,13 @@
 //
-//
 #include "Vfifo4.h"
 #include "verilated.h"
 
 #include <cstdint>
 #include <deque>
 #include <iostream>
+#include <cstdint>
+#include <cstdio>
+#include <random>
 
 class Testbench
 {
@@ -250,6 +252,124 @@ public:
 
     void run()
     {
+        constexpr uint32_t seed = 0x26C0FFEEu;
+        constexpr unsigned random_cycles = 200;
+
+        std::printf("CONFIG seed=%u random_cycles=%u\n",
+                    static_cast<unsigned>(seed), random_cycles);
+
+        // 保留昨天的定向测试；不在两个阶段之间复位。
+        run_directed();
+
+        check_equal("directed/sent", 8, sent);
+        check_equal("directed/received", 8, received);
+        check_equal("directed/both", 4, both);
+        check_equal("directed/blocked", 3, blocked);
+        check_equal("directed/pending", 0, expected.size());
+
+        std::mt19937 rng(seed);
+        bool holding = false;
+        uint8_t held_data = 0;
+        unsigned generated = 0;
+        const auto sent_before_random = sent;
+
+        case_name = "random";
+
+        for (unsigned step = 0; step < random_cycles; ++step)
+        {
+            // 每拍固定取三个随机数，便于追踪随机序列。
+            const bool offer = (rng() & 3u) != 0;
+            const bool ready = (rng() & 1u) != 0;
+            const auto candidate =
+                static_cast<uint8_t>(rng() & 0xffu);
+
+            // TODO10：
+            // 仅当“没有等待中的事务”且offer为真时，
+            // 把candidate保存到held_data，置holding，
+            // 并将generated增加1。
+            // 已有事务等待时，不覆盖held_data。
+            // #error "TODO10: create a new offer only when idle"
+
+            // 无效周期的数据统一置0，方便阅读日志。
+            // TODO 10 My Code Start
+            if (!holding && offer)
+            {
+                held_data = candidate;
+                holding = true;
+                ++generated;
+            }
+            // TODO 10 My Code End
+            const uint8_t drive_data = holding ? held_data : 0;
+
+            std::printf("DRIVE step=%u valid=%u data=%u ready=%u\n",
+                        step,
+                        static_cast<unsigned>(holding),
+                        static_cast<unsigned>(drive_data),
+                        static_cast<unsigned>(ready));
+
+            const auto before = sent;
+
+            // TODO11：
+            // 调用tick()：不复位，以holding作为输入valid，
+            // drive_data作为输入数据，ready作为下游ready。
+            // 随后仅在本拍确实输入握手时清除holding。
+            // 用sent与before比较，不读取沿后的in_ready。
+            // #error "TODO11: drive one cycle and retire an accepted offer"
+            // TODO 11 My Code Start
+            tick(false, holding, drive_data, ready);
+            if (sent != before)
+                holding = false;
+            // TODO 11 My Code End
+        }
+
+        case_name = "source_flush";
+
+        // 停止生成新数据，但必须交付已提出的最后一笔。
+        for (unsigned waited = 0;
+             holding && waited < 8;
+             ++waited)
+        {
+
+            std::printf("FLUSH step=%u data=%u\n",
+                        waited, static_cast<unsigned>(held_data));
+
+            const auto before = sent;
+
+            // TODO12：
+            // 不复位；继续有效地发送held_data；
+            // 下游始终ready。
+            // 本拍输入握手成功后清除holding。
+            // 不产生新数据，不增加generated。
+            // #error "TODO12: finish the outstanding input with a bound"
+            // TODO 12 My Code Start
+            tick(false, true, held_data, true);
+            if (sent != before)
+                holding = false;
+            // TODO 12 My Code End
+        }
+
+        check_equal("source/holding", 0, holding);
+        check_equal("source/generated_nonzero", 1, generated != 0);
+        check_equal("source/accepted",
+                    sent_before_random + generated, sent);
+
+        case_name = "drain";
+        drain_all();
+
+        case_name = "end_empty";
+        tick(false, false, 0, true);
+
+        check_equal("random/pending", 0, expected.size());
+        check_equal("random/all_received", sent, received);
+
+        std::printf("RANDOM seed=%u generated=%u holding=%u\n",
+                    static_cast<unsigned>(seed),
+                    generated,
+                    static_cast<unsigned>(holding));
+    }
+
+    void run_directed()
+    {
         /*
         case_name = "empty";
         tick(false, false, 0, true); // cycle 2
@@ -403,11 +523,13 @@ public:
     int finish()
     {
         case_name = "finish";
-
+        /*
         check_equal("end/sent", 8, sent);
         check_equal("end/received", 8, received);
         check_equal("end/both", 4, both);
         check_equal("end/blocked", 3, blocked);
+        */
+        check_equal("end/received", sent, received); // 新增检查
         check_equal("end/pending", 0, expected.size());
         check_equal("end/out_valid", 0, dut.out_valid);
         check_equal("end/balance",
