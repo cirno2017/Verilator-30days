@@ -1,16 +1,13 @@
 //
 module fifo4 (
-    input logic clk,
-    input logic rst,
-
+    input  logic       clk,
+    input  logic       rst,
     input  logic       in_valid,
     output logic       in_ready,
     input  logic [7:0] in_data,
-
     output logic       out_valid,
     input  logic       out_ready,
     output logic [7:0] out_data,
-
     output logic [2:0] level
 );
   timeunit 1ns; timeprecision 1ns;
@@ -24,7 +21,6 @@ module fifo4 (
   assign out_valid = count != 3'd0;
   assign out_data  = out_valid ? mem[rd_ptr] : 8'h00;
   assign level     = count;
-
   assign push      = in_valid && in_ready;
   assign pop       = out_valid && out_ready;
 
@@ -46,7 +42,6 @@ module fifo4 (
       })
         2'b10:   count <= count + 3'd1;
         2'b01:   count <= count - 3'd1;
-        // 2'b11:   count <= count + 3'd1;  // 故意错误
         default: count <= count;
       endcase
     end

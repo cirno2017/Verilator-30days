@@ -105,6 +105,14 @@ private:
 
         const bool stalled = !rst && pre_valid && !ready;
 
+        if (!rst)
+        {
+            sample_coverage(
+                static_cast<unsigned>(expected.size()),
+                take_in,
+                take_out);
+        }
+
         sent += take_in;
         received += take_out;
         both += take_in && take_out;
@@ -207,6 +215,53 @@ public:
         tick(true, false, 0, false, false);
     }
 
+    struct Coverage
+    {
+        unsigned empty = 0;
+        unsigned full = 0;
+        unsigned both = 0;
+        unsigned blocked = 0;
+        unsigned stall = 0;
+        unsigned write_wrap = 0;
+        unsigned read_wrap = 0;
+    };
+
+    Coverage cov{};
+
+    void sample_coverage(unsigned pre_size, bool push, bool pop)
+    {
+        // 示例：按沿前参考模型状态统计空周期。
+        if (pre_size == 0)
+            ++cov.empty;
+
+        // TODO13：
+        // 按覆盖清单补齐 full、both、blocked、stall。
+        // blocked/stall 使用本次沿前的 DUT 端口值。
+        // #error "TODO13: count pre-edge scenarios"
+        // TODO 13 My Code Start
+        if (pre_size == 4)
+            ++cov.full;
+        if (push && pop)
+            ++cov.both;
+        if (dut.in_valid && !dut.in_ready)
+            ++cov.blocked;
+        if (dut.out_valid && !dut.out_ready)
+            ++cov.stall;
+        // TODO 13 My Code End
+
+        // TODO14：
+        // push 成立且 (sent + 1) 为4的倍数：write_wrap加1。
+        // pop  成立且 (received + 1) 为4的倍数：read_wrap加1。
+        // 此处 sent/received 必须仍是本沿更新前的计数。
+        // #error "TODO14: count expected wrap opportunities"
+        // TODO 14 My Code Start
+        if (push && (sent + 1) % 4 == 0)
+            ++cov.write_wrap;
+        if (pop && (received + 1) % 4 == 0)
+            ++cov.read_wrap;
+        // TODO 14 My Code End
+    }
+
     // 调用前，FIFO 必须为空。
     // 下游不接收，连续发送四笔：first + 17*i。
     void fill4(unsigned first)
@@ -250,7 +305,88 @@ public:
         check_equal("drain/received", want, received - before);
     }
 
+    void coverage_row(const char *name, unsigned hits, bool enforce)
+    {
+        std::printf("COVER item=%s hits=%u status=%s\n",
+                    name, hits, hits ? "HIT" : "MISS");
+
+        if (enforce)
+        {
+            // TODO15：
+            // 使用已有 check_equal() 检查 hits != 0。
+            // 期望值为1，实际值为布尔表达式 hits != 0。
+            // item 使用 name，错误仍进入原来的 errors。
+            // #error "TODO15: make missing coverage fail the test"
+            // TODO 15 My Code Start
+            check_equal(name, 1, hits != 0);
+            // TODO 15 My Code End
+        }
+    }
+
+    void report_coverage(bool enforce)
+    {
+        coverage_row("cover/empty", cov.empty, enforce);
+        coverage_row("cover/full", cov.full, enforce);
+        coverage_row("cover/both", cov.both, enforce);
+        coverage_row("cover/blocked", cov.blocked, enforce);
+        coverage_row("cover/stall", cov.stall, enforce);
+        coverage_row("cover/write_wrap", cov.write_wrap, enforce);
+        coverage_row("cover/read_wrap", cov.read_wrap, enforce);
+    }
+
     void run()
+    {
+        // 完整保留昨天的定向与固定seed随机测试。
+        run_day26();
+
+        case_name = "coverage_all";
+        std::puts("COVERAGE phase=day26");
+        report_coverage(false);
+
+        check_equal("coverage/start_empty", 0, expected.size());
+
+        // 开始一个单独统计的覆盖阶段。
+        // 只清零覆盖计数，不复位硬件，不清空参考队列，
+        // 不改变 sent/received。
+        cov = Coverage{};
+
+        case_name = "coverage_fill";
+
+        tick(false, true, 0xE1, false);
+        tick(false, true, 0xE2, false);
+        tick(false, true, 0xE3, false);
+        tick(false, true, 0xE4, false);
+
+        check_equal("coverage/filled", 4, expected.size());
+
+        std::puts("COVERAGE phase=fill_only");
+        report_coverage(false);
+
+        case_name = "coverage_patch";
+
+        // FIFO已满，提出E5并等待。
+        tick(false, true, 0xE5, false);
+
+        // 满时释放下游：本沿只输出，E5仍需保持。
+        tick(false, true, 0xE5, true);
+
+        // 此时已有空间：同时输出和接收E5。
+        tick(false, true, 0xE5, true);
+
+        case_name = "coverage_drain";
+        drain_all(); // 保留原来的八拍上限
+
+        case_name = "coverage_end";
+        tick(false, false, 0, true);
+
+        check_equal("coverage/pending", 0, expected.size());
+        check_equal("coverage/balance", sent, received);
+
+        std::puts("COVERAGE phase=patched");
+        report_coverage(true);
+    }
+
+    void run_day26()
     {
         constexpr uint32_t seed = 0x26C0FFEEu;
         constexpr unsigned random_cycles = 200;
