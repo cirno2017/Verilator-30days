@@ -1,6 +1,7 @@
 //
 #include "Vfifo4.h"
 #include "verilated.h"
+#include "verilated_cov.h"
 
 #include <cstdint>
 #include <deque>
@@ -334,7 +335,81 @@ public:
         coverage_row("cover/read_wrap", cov.read_wrap, enforce);
     }
 
+    void clear_code_coverage()
+    {
+        // TODO16：
+        // 清零当前 DUT 所属 context 的代码覆盖计数。
+        // 不复位 DUT，不清空 expected，不修改 sent/received/errors。
+        // #error "TODO16: clear code coverage counters"
+        // TODO 16 My Code Start
+        VerilatedCov::zero();
+        // TODO 16 My Code End
+    }
+
+    void save_code_coverage(const char *path)
+    {
+        // TODO17：
+        // 将当前 context 的代码覆盖计数写到 path。
+        // #error "TODO17: write code coverage snapshot"
+        // TODO 17 My Code Start
+        VerilatedCov::write(path);
+        // TODO 17 My Code End
+
+        std::printf("CODE_COVER file=%s\n", path);
+    }
+
     void run()
+    {
+        // 先完成 Day27 的全部测试与强制功能覆盖检查。
+        run_day27();
+
+        case_name = "codecov_start";
+        check_equal("codecov/start_empty", 0, expected.size());
+
+        // 新建独立统计窗口；硬件与事务计数继续运行。
+        cov = Coverage{};
+        clear_code_coverage();
+
+        case_name = "codecov_fill";
+        tick(false, true, 0xD1, false);
+        tick(false, true, 0xD2, false);
+        tick(false, true, 0xD3, false);
+        tick(false, true, 0xD4, false);
+
+        check_equal("codecov/filled", 4, expected.size());
+
+        std::puts("COVERAGE phase=code_fill");
+        report_coverage(false);
+        save_code_coverage("logs/day28_before.dat");
+
+        case_name = "codecov_patch";
+
+        // TODO18：补三次 tick，沿用昨天已经理解的握手规则。
+        // 1. 满时提出 0xD5，下游不就绪：无传输。
+        // 2. 保持 0xD5，下游就绪：只输出，输入仍受阻。
+        // 3. 继续保持 0xD5，下游就绪：同时输出和接收。
+        // #error "TODO18: add three directed cycles"
+        // TODO 18 My Code Start
+        tick(false, true, 0xD5, false); // 满时提出0xD5，无传输
+        tick(false, true, 0xD5, true);  // 满时只输出，0xD5仍受阻
+        tick(false, true, 0xD5, true);  // 同时输出和接收0xD5
+        // TODO 18 My Code End
+
+        case_name = "codecov_drain";
+        drain_all(); // 继续使用已有八拍上限
+
+        case_name = "codecov_end";
+        tick(false, false, 0, true);
+
+        check_equal("codecov/pending", 0, expected.size());
+        check_equal("codecov/balance", sent, received);
+
+        std::puts("COVERAGE phase=code_patched");
+        report_coverage(true);
+        save_code_coverage("logs/day28_after.dat");
+    }
+
+    void run_day27()
     {
         // 完整保留昨天的定向与固定seed随机测试。
         run_day26();
