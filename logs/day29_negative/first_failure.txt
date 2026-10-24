@@ -1,0 +1,3 @@
+seed=1 exit=1 inject_fail=1
+log=logs/day29_negative/seed_1/run.log
+FAIL case=harness_negative cycle=245 time_ns=2450 item=harness/injected_failure expected=0 actual=1

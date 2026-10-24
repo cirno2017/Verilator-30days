@@ -2,6 +2,7 @@
 #include "Vfifo4.h"
 #include "verilated.h"
 #include "verilated_cov.h"
+#include "verilated_vcd_c.h"
 
 #include <cstdint>
 #include <deque>
@@ -9,6 +10,37 @@
 #include <cstdint>
 #include <cstdio>
 #include <random>
+
+#include <cstdint>
+#include <cstdlib>
+#include <stdexcept>
+#include <string>
+#include <memory>
+
+static uint32_t read_seed()
+{
+    const char *p = std::getenv("TB_SEED");
+    if (!p)
+        return 650182638u;
+
+    std::string s(p);
+    if (s.empty() ||
+        s.find_first_not_of("0123456789") != std::string::npos)
+        throw std::runtime_error("TB_SEED must be decimal uint32");
+
+    std::size_t used = 0;
+    unsigned long long value = std::stoull(s, &used, 10);
+    if (used != s.size() || value > UINT32_MAX)
+        throw std::runtime_error("TB_SEED out of range");
+
+    return static_cast<uint32_t>(value);
+}
+
+static bool env_enabled(const char *name)
+{
+    const char *p = std::getenv(name);
+    return p && std::string(p) == "1";
+}
 
 class Testbench
 {
@@ -74,6 +106,9 @@ private:
         dut.in_data = data;
         dut.out_ready = ready;
         dut.eval();
+        // TODO 20 My Code Start (B：低电平稳定采样点)
+        dump_trace(); // 周期起点：低电平输入稳定后采样
+        // TODO 20 My Code End
 
         if (check_before)
         {
@@ -172,6 +207,9 @@ private:
         context.timeInc(4);
         dut.clk = 1;
         dut.eval();
+        // TODO 20 My Code Start (B：上升沿采样点)
+        dump_trace(); // 上升沿后采样
+        // TODO 20 My Code End
 
         check_state("rise/in_ready", "rise/out_valid",
                     "rise/level", "rise/out_data");
@@ -205,6 +243,11 @@ public:
     explicit Testbench(VerilatedContext &ctx)
         : context(ctx), dut(&ctx)
     {
+        // TODO 20 My Code Start (A：首次 eval 前打开 trace)
+        // 必须在第一次 eval() 前打开。
+        open_trace_if_requested();
+        // TODO 20 My Code End
+
         dut.clk = 0;
         dut.rst = 1;
         dut.in_valid = 0;
@@ -228,6 +271,26 @@ public:
     };
 
     Coverage cov{};
+
+    std::unique_ptr<VerilatedVcdC> trace;
+
+    void open_trace_if_requested()
+    {
+        if (!env_enabled("TB_TRACE"))
+            return;
+
+        // 必须在第一次 eval() 前完成。
+        context.traceEverOn(true);
+        trace = std::make_unique<VerilatedVcdC>();
+        dut.trace(trace.get(), 2);
+        trace->open("failure.vcd");
+    }
+
+    void dump_trace()
+    {
+        if (trace)
+            trace->dump(context.time());
+    }
 
     void sample_coverage(unsigned pre_size, bool push, bool pop)
     {
@@ -407,6 +470,15 @@ public:
         std::puts("COVERAGE phase=code_patched");
         report_coverage(true);
         save_code_coverage("logs/day28_after.dat");
+
+        // TODO21：受控失败开关。
+        // TODO 21 My Code Start
+        if (env_enabled("TB_INJECT_FAIL"))
+        {
+            case_name = "harness_negative";
+            check_equal("harness/injected_failure", 0, 1);
+        }
+        // TODO 21 My Code End
     }
 
     void run_day27()
@@ -463,11 +535,16 @@ public:
 
     void run_day26()
     {
-        constexpr uint32_t seed = 0x26C0FFEEu;
+        // TODO19：使用外部 seed；random_cycles 仍为 200。
+        // TODO 19 My Code Start
+        const uint32_t seed = read_seed();
         constexpr unsigned random_cycles = 200;
 
-        std::printf("CONFIG seed=%u random_cycles=%u\n",
-                    static_cast<unsigned>(seed), random_cycles);
+        std::printf("CONFIG seed=%u random_cycles=%u trace=%u inject_fail=%u\n",
+                    static_cast<unsigned>(seed), random_cycles,
+                    env_enabled("TB_TRACE") ? 1u : 0u,
+                    env_enabled("TB_INJECT_FAIL") ? 1u : 0u);
+        // TODO 19 My Code End
 
         // 保留昨天的定向测试；不在两个阶段之间复位。
         run_directed();
@@ -746,7 +823,17 @@ public:
         check_equal("end/balance",
                     sent, received + expected.size());
 
+        // TODO 20 My Code Start (C：补 dump、final 后关闭)
+        dump_trace(); // 收尾前补一次当前状态
+
         dut.final();
+
+        if (trace)
+        {
+            trace->close();
+            trace.reset();
+        }
+        // TODO 20 My Code End
 
         std::cout << (errors == 0 ? "PASS" : "FAIL")
                   << " cycles=" << cycle
@@ -765,10 +852,20 @@ public:
 
 int main(int argc, char **argv)
 {
-    VerilatedContext context;
-    context.commandArgs(argc, argv);
+    // TODO 19 My Code Start (异常处理：配置错误返回 2)
+    try
+    {
+        VerilatedContext context;
+        context.commandArgs(argc, argv);
 
-    Testbench tb{context};
-    tb.run();
-    return tb.finish();
+        Testbench tb{context};
+        tb.run();
+        return tb.finish();
+    }
+    catch (const std::exception &e)
+    {
+        std::fprintf(stderr, "CONFIG_ERROR %s\n", e.what());
+        return 2;
+    }
+    // TODO 19 My Code End
 }

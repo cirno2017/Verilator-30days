@@ -1,0 +1,11 @@
+# SystemC::Coverage-3
+C 'ffifo4.vl27n3pagev_line/fifo4oblockS27hTOP.fifo4' 4
+C 'ffifo4.vl28n5pagev_branch/fifo4oifS28-31hTOP.fifo4' 0
+C 'ffifo4.vl28n6pagev_branch/fifo4oelseS32,40-41hTOP.fifo4' 4
+C 'ffifo4.vl33n7pagev_branch/fifo4oifS33-35hTOP.fifo4' 4
+C 'ffifo4.vl33n8pagev_branch/fifo4oelsehTOP.fifo4' 0
+C 'ffifo4.vl38n7pagev_branch/fifo4oifS38hTOP.fifo4' 0
+C 'ffifo4.vl38n8pagev_branch/fifo4oelsehTOP.fifo4' 4
+C 'ffifo4.vl43n14pagev_line/fifo4ocaseS43hTOP.fifo4' 4
+C 'ffifo4.vl44n14pagev_line/fifo4ocaseS44hTOP.fifo4' 0
+C 'ffifo4.vl45n9pagev_line/fifo4ocaseS45hTOP.fifo4' 0
